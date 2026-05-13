@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -45,12 +45,14 @@ app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
-app.include_router(auth.router)
-app.include_router(github_auth.router)
-app.include_router(users.router)
-app.include_router(organizations.router)
-app.include_router(projects.router)
-app.include_router(actors.router)
+api_v1 = APIRouter(prefix="/api/v1")
+api_v1.include_router(auth.router)
+api_v1.include_router(github_auth.router)
+api_v1.include_router(users.router)
+api_v1.include_router(organizations.router)
+api_v1.include_router(projects.router)
+api_v1.include_router(actors.router)
+app.include_router(api_v1)
 
 
 @app.get("/", tags=["health"], include_in_schema=False)
