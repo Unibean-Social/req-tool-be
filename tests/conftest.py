@@ -85,6 +85,9 @@ async def db_session():
 # ---------------------------------------------------------------------------
 # Async HTTP client
 # ---------------------------------------------------------------------------
+BASE = "/api/v1"
+
+
 @pytest_asyncio.fixture
 async def client(db_session):
     """AsyncClient wired to the FastAPI app via ASGI transport."""
@@ -105,7 +108,7 @@ async def registered_user(client):
         "password": "Secret123!",
         "full_name": "Alice Test",
     }
-    resp = await client.post("/auth/register", json=payload)
+    resp = await client.post(f"{BASE}/auth/register", json=payload)
     assert resp.status_code == 201
     return payload
 
@@ -113,14 +116,14 @@ async def registered_user(client):
 @pytest_asyncio.fixture
 async def auth_headers(client, registered_user):
     resp = await client.post(
-        "/auth/login",
+        f"{BASE}/auth/login",
         json={
             "email": registered_user["email"],
             "password": registered_user["password"],
         },
     )
     assert resp.status_code == 200
-    token = resp.json()["access_token"]
+    token = resp.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -132,7 +135,7 @@ async def second_user(client):
         "password": "Secret123!",
         "full_name": "Bob Test",
     }
-    resp = await client.post("/auth/register", json=payload)
+    resp = await client.post(f"{BASE}/auth/register", json=payload)
     assert resp.status_code == 201
     return payload
 
@@ -140,14 +143,14 @@ async def second_user(client):
 @pytest_asyncio.fixture
 async def second_auth_headers(client, second_user):
     resp = await client.post(
-        "/auth/login",
+        f"{BASE}/auth/login",
         json={
             "email": second_user["email"],
             "password": second_user["password"],
         },
     )
     assert resp.status_code == 200
-    token = resp.json()["access_token"]
+    token = resp.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -155,7 +158,7 @@ async def second_auth_headers(client, second_user):
 async def org(client, auth_headers):
     """An organization created by alice."""
     resp = await client.post(
-        "/orgs",
+        f"{BASE}/orgs",
         json={"name": "ACME Corp", "slug": "acme-corp"},
         headers=auth_headers,
     )
@@ -167,7 +170,7 @@ async def org(client, auth_headers):
 async def project(client, auth_headers, org):
     """A project inside alice's org."""
     resp = await client.post(
-        f"/orgs/{org['id']}/projects",
+        f"{BASE}/orgs/{org['id']}/projects",
         json={"name": "Alpha Project", "slug": "alpha", "description": "Test project"},
         headers=auth_headers,
     )

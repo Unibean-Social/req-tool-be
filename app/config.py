@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Token encryption (Fernet key — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
     encryption_key: str = ""
 
+    # Password pepper (HMAC key — generate with: python -c "import secrets; print(secrets.token_hex(32))")
+    # Defaults to jwt_secret_key in dev so no extra config is required locally.
+    password_pepper: str = ""
+
     # GitHub OAuth
     github_client_id: str = ""
     github_client_secret: str = ""
@@ -27,6 +31,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    auto_migrate: bool = True
 
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> "Settings":
@@ -37,6 +42,8 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
             if not self.encryption_key:
                 raise ValueError("ENCRYPTION_KEY must be set in non-development environments")
+            if not self.password_pepper:
+                raise ValueError("PASSWORD_PEPPER must be set in non-development environments")
             if not self.github_client_id or not self.github_client_secret:
                 raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in non-development environments")
         return self

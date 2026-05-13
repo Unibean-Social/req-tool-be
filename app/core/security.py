@@ -1,18 +1,29 @@
+import base64
+import hashlib
+import hmac as _hmac
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+import bcrypt
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _prehash(password: str) -> bytes:
+    # HMAC-SHA256 with a server-side pepper; base64 output is 44 bytes (well under the 72-byte bcrypt limit).
+    # Pepper defaults to jwt_secret_key in dev so no extra config is needed locally.
+    # Set PASSWORD_PEPPER independently in production so JWT and password secrets can rotate separately.
+    pepper = settings.password_pepper or settings.jwt_secret_key
+    digest = _hmac.new(pepper.encode("utf-8"), password.encode("utf-8"), hashlib.sha256).digest()
+    return base64.b64encode(digest)
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_prehash(password), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(_prehash(plain), hashed.encode())
 
 
 def _create_token(subject: Any, expires_delta: timedelta, token_type: str) -> str:
