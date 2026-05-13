@@ -3,12 +3,24 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def _problem(status_code: int, title: str, detail: str, instance: str = None) -> JSONResponse:
-    body = {
+def _request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)
+
+
+def _problem(
+    status_code: int,
+    title: str,
+    detail: str,
+    instance: str | None = None,
+    request_id: str | None = None,
+    errors: list[dict] | None = None,
+) -> JSONResponse:
+    body: dict = {
         "type": "about:blank",
         "title": title,
         "status": status_code,
@@ -16,6 +28,10 @@ def _problem(status_code: int, title: str, detail: str, instance: str = None) ->
     }
     if instance:
         body["instance"] = instance
+    if request_id:
+        body["request_id"] = request_id
+    if errors:
+        body["errors"] = errors
     return JSONResponse(
         status_code=status_code,
         content=body,
@@ -23,34 +39,58 @@ def _problem(status_code: int, title: str, detail: str, instance: str = None) ->
     )
 
 
+_HTTP_TITLES = {
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    409: "Conflict",
+    422: "Unprocessable Entity",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    502: "Bad Gateway",
+}
+
+
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-    titles = {
-        400: "Bad Request",
-        401: "Unauthorized",
-        403: "Forbidden",
-        404: "Not Found",
-        409: "Conflict",
-        422: "Unprocessable Entity",
-        500: "Internal Server Error",
-    }
-    title = titles.get(exc.status_code, "Error")
-    return _problem(exc.status_code, title, str(exc.detail), str(request.url))
+    title = _HTTP_TITLES.get(exc.status_code, "Error")
+    return _problem(
+        exc.status_code,
+        title,
+        str(exc.detail),
+        str(request.url),
+        _request_id(request),
+    )
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    errors = exc.errors()
-    detail = "; ".join(
-        f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
-        for e in errors
+    errors = []
+    for e in exc.errors():
+        # Strip leading "body", "query", "path" location prefix from field path
+        loc = e["loc"]
+        if loc and loc[0] in ("body", "query", "path", "header", "cookie"):
+            loc = loc[1:]
+        field = ".".join(str(p) for p in loc) if loc else "request"
+        errors.append({"field": field, "message": e["msg"]})
+
+    return _problem(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "Validation Error",
+        "Request validation failed",
+        str(request.url),
+        _request_id(request),
+        errors,
     )
-    return _problem(status.HTTP_422_UNPROCESSABLE_ENTITY, "Validation Error", detail, str(request.url))
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url, exc_info=exc)
+    # Never expose internal detail outside development
+    detail = str(exc) if settings.app_debug else "An unexpected error occurred."
     return _problem(
         status.HTTP_500_INTERNAL_SERVER_ERROR,
         "Internal Server Error",
-        "An unexpected error occurred.",
+        detail,
         str(request.url),
+        _request_id(request),
     )

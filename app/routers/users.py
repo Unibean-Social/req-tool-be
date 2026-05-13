@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
+from app.core.responses import ok
 from app.schemas.user import UserResponse, UserUpdateRequest
+from app.schemas.response import ApiResponse
 from app.deps import current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=ApiResponse[UserResponse])
 async def get_me(user: User = Depends(current_user)):
-    return user
+    return ok(user)
 
 
-@router.patch("/me", response_model=UserResponse)
+@router.patch("/me", response_model=ApiResponse[UserResponse])
 async def update_me(
     body: UserUpdateRequest,
     user: User = Depends(current_user),
@@ -21,4 +23,4 @@ async def update_me(
 ):
     if body.full_name is not None:
         user.full_name = body.full_name
-    return user
+    return ok(user)

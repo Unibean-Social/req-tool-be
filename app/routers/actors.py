@@ -7,7 +7,9 @@ from app.models.actor import Actor
 from app.models.project import Project
 from app.models.organization import OrgMember
 from app.models.user import User
+from app.core.responses import ok, created
 from app.schemas.actor import ActorCreateRequest, ActorUpdateRequest, ActorResponse
+from app.schemas.response import ApiResponse
 from app.deps import current_user
 
 router = APIRouter(prefix="/projects/{project_id}/actors", tags=["actors"])
@@ -27,7 +29,7 @@ async def _require_project_access(project_id: uuid.UUID, user: User, db: AsyncSe
     return project
 
 
-@router.post("", response_model=ActorResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiResponse[ActorResponse], status_code=status.HTTP_201_CREATED)
 async def create_actor(
     project_id: uuid.UUID,
     body: ActorCreateRequest,
@@ -38,10 +40,10 @@ async def create_actor(
     actor = Actor(project_id=project_id, name=body.name, role_description=body.role_description)
     db.add(actor)
     await db.flush()
-    return actor
+    return created(actor)
 
 
-@router.get("", response_model=list[ActorResponse])
+@router.get("", response_model=ApiResponse[list[ActorResponse]])
 async def list_actors(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -49,10 +51,10 @@ async def list_actors(
 ):
     await _require_project_access(project_id, user, db)
     result = await db.execute(select(Actor).where(Actor.project_id == project_id))
-    return result.scalars().all()
+    return ok(result.scalars().all())
 
 
-@router.patch("/{actor_id}", response_model=ActorResponse)
+@router.patch("/{actor_id}", response_model=ApiResponse[ActorResponse])
 async def update_actor(
     project_id: uuid.UUID,
     actor_id: uuid.UUID,
@@ -72,7 +74,7 @@ async def update_actor(
         actor.name = body.name
     if body.role_description is not None:
         actor.role_description = body.role_description
-    return actor
+    return ok(actor)
 
 
 @router.delete("/{actor_id}", status_code=status.HTTP_204_NO_CONTENT)

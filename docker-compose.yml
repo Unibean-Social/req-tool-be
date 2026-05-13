@@ -1,3 +1,4 @@
+name: req.bean9.net
 services:
   postgres:
     image: postgres:16-alpine
@@ -22,7 +23,7 @@ services:
     container_name: reqflow_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@reqflow.local
+      PGADMIN_DEFAULT_EMAIL: admin@reqflow.com
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"

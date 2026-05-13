@@ -1,10 +1,12 @@
-import logging
+import os
+import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from pythonjsonlogger import jsonlogger
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.config import settings
 from app.database import engine
@@ -12,16 +14,29 @@ from app.core.errors import http_exception_handler, validation_exception_handler
 from app.routers import auth, github_auth, users, organizations, projects, actors
 
 
-def setup_logging():
-    handler = logging.StreamHandler()
-    handler.setFormatter(jsonlogger.JsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-    logging.getLogger().addHandler(handler)
-    logging.getLogger().setLevel(logging.DEBUG if settings.app_debug else logging.INFO)
+def _run_migrations() -> None:
+    from alembic.config import Config
+    from alembic import command
+
+    ini_path = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    cfg = Config(os.path.normpath(ini_path))
+    command.upgrade(cfg, "head")
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logging()
+    import asyncio
+    if settings.auto_migrate:
+        await asyncio.get_event_loop().run_in_executor(None, _run_migrations)
     yield
     await engine.dispose()
 
@@ -33,12 +48,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)

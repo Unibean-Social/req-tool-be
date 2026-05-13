@@ -6,7 +6,9 @@ from app.database import get_db
 from app.models.project import Project
 from app.models.organization import OrgMember
 from app.models.user import User
+from app.core.responses import ok, created
 from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest, ProjectResponse
+from app.schemas.response import ApiResponse
 from app.deps import current_user
 
 router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["projects"])
@@ -28,7 +30,7 @@ async def _require_org_owner(org_id: uuid.UUID, user: User, db: AsyncSession) ->
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Owner role required")
 
 
-@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiResponse[ProjectResponse], status_code=status.HTTP_201_CREATED)
 async def create_project(
     org_id: uuid.UUID,
     body: ProjectCreateRequest,
@@ -46,10 +48,10 @@ async def create_project(
     project = Project(org_id=org_id, name=body.name, slug=body.slug, description=body.description)
     db.add(project)
     await db.flush()
-    return project
+    return created(project)
 
 
-@router.get("", response_model=list[ProjectResponse])
+@router.get("", response_model=ApiResponse[list[ProjectResponse]])
 async def list_projects(
     org_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -57,10 +59,10 @@ async def list_projects(
 ):
     await _require_org_member(org_id, user, db)
     result = await db.execute(select(Project).where(Project.org_id == org_id))
-    return result.scalars().all()
+    return ok(result.scalars().all())
 
 
-@router.get("/{project_id}", response_model=ProjectResponse)
+@router.get("/{project_id}", response_model=ApiResponse[ProjectResponse])
 async def get_project(
     org_id: uuid.UUID,
     project_id: uuid.UUID,
@@ -74,10 +76,10 @@ async def get_project(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return project
+    return ok(project)
 
 
-@router.patch("/{project_id}", response_model=ProjectResponse)
+@router.patch("/{project_id}", response_model=ApiResponse[ProjectResponse])
 async def update_project(
     org_id: uuid.UUID,
     project_id: uuid.UUID,
@@ -97,7 +99,7 @@ async def update_project(
         project.name = body.name
     if body.description is not None:
         project.description = body.description
-    return project
+    return ok(project)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

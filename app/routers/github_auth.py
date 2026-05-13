@@ -13,6 +13,8 @@ from app.models.user import User
 from app.core.security import create_access_token, create_refresh_token
 from app.core.crypto import encrypt_token
 from app.schemas.auth import TokenResponse
+from app.schemas.response import ApiResponse
+from app.core.responses import ok
 from app.deps import current_user
 from app.config import settings
 
@@ -75,7 +77,7 @@ async def github_authorize(response: Response):
     return redirect
 
 
-@router.get("/callback", response_model=TokenResponse)
+@router.get("/callback", response_model=ApiResponse[TokenResponse])
 async def github_callback(
     code: str,
     state: str,
@@ -168,10 +170,11 @@ async def github_callback(
         db.add(user)
 
     await db.flush()
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
     )
+    return ok(tokens)
 
 
 @router.delete("/unlink", status_code=status.HTTP_204_NO_CONTENT)

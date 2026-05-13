@@ -1,9 +1,16 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
+# ── New here? Three commands to get started: ──────────────────────────────────
+#   task setup       — create .venv and install all dependencies
+#   task infra:up    — start PostgreSQL + pgAdmin via Docker
+#   task dev         — run the API at http://127.0.0.1:8000
+
 vars:
   APP: app.main:app
   PORT: "8000"
+  PIP:
+    sh: test -f .venv/bin/pip && echo ".venv/bin/pip" || echo ".venv/Scripts/pip"
 
 tasks:
   default:
@@ -12,29 +19,14 @@ tasks:
       - task --list
     silent: true
 
-  install:
-    desc: Install Python dependencies
-    cmds:
-      - pip install -r requirements.txt
+  # ── Setup ─────────────────────────────────────────────────────────────────
 
-  install:dev:
-    desc: Install dev + test dependencies
-    cmds:
-      - pip install -r requirements.txt -r requirements-dev.txt
-
-  venv:
-    desc: Create virtual environment at .venv/
+  setup:
+    desc: "First-time setup: create .venv and install all dependencies"
     cmds:
       - python -m venv .venv
-
-  venv:install:
-    desc: Create .venv and install all dependencies
-    cmds:
-      - task: venv
-      - cmd: .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
-        platforms: [windows]
-      - cmd: .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-        platforms: [linux, darwin]
+      - "{{.PIP}} install -r requirements.txt"
+      - task --list
 
   # ── Database ──────────────────────────────────────────────────────────────
 
@@ -49,7 +41,7 @@ tasks:
       - alembic downgrade -1
 
   db:revision:
-    desc: "Autogenerate a new migration — task db:revision -- 'add sprints table'"
+    desc: "Create a new migration — task db:revision -- 'describe your change'"
     cmds:
       - alembic revision --autogenerate -m "{{.CLI_ARGS}}"
 
@@ -66,12 +58,12 @@ tasks:
   # ── Infrastructure ────────────────────────────────────────────────────────
 
   infra:up:
-    desc: Start PostgreSQL + pgAdmin in background
+    desc: Start PostgreSQL + pgAdmin in background (Docker required)
     cmds:
       - docker compose up -d
 
   infra:down:
-    desc: Stop infrastructure
+    desc: Stop infrastructure containers
     cmds:
       - docker compose down
 
@@ -81,7 +73,7 @@ tasks:
       - docker compose logs -f
 
   infra:reset:
-    desc: Destroy volumes and restart fresh (DESTROYS ALL DATA)
+    desc: "WARNING: destroy all data and restart fresh"
     cmds:
       - docker compose down -v
       - docker compose up -d
@@ -89,7 +81,7 @@ tasks:
   # ── App ───────────────────────────────────────────────────────────────────
 
   dev:
-    desc: Migrate → run FastAPI with auto-reload (development)
+    desc: Run FastAPI with auto-reload at http://127.0.0.1:8000 (runs migrations first)
     cmds:
       - task: db:upgrade
       - uvicorn {{.APP}} --reload --host 127.0.0.1 --port {{.PORT}}
@@ -97,17 +89,15 @@ tasks:
       AUTO_MIGRATE: "false"
 
   start:
-    desc: Migrate → run FastAPI in production mode (4 workers)
+    desc: Run FastAPI in production mode with 4 workers (runs migrations first)
     cmds:
       - task: db:upgrade
       - uvicorn {{.APP}} --host 0.0.0.0 --port {{.PORT}} --workers 4
     env:
       AUTO_MIGRATE: "false"
 
-  # ── Quick start ───────────────────────────────────────────────────────────
-
   up:
-    desc: Full local stack — infra up → dev (migrations run inside dev task)
+    desc: "Full local stack: infra up → migrate → dev server"
     cmds:
       - task: infra:up
       - task: dev

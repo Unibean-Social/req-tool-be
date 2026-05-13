@@ -5,14 +5,16 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from app.core.responses import ok, created
 from app.schemas.auth import RegisterRequest, LoginRequest, RefreshRequest, TokenResponse
 from app.schemas.user import UserResponse
+from app.schemas.response import ApiResponse
 from app.deps import current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=ApiResponse[UserResponse], status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
@@ -25,10 +27,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
     db.add(user)
     await db.flush()
-    return user
+    return created(user, "Registration successful")
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=ApiResponse[TokenResponse])
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -37,13 +39,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Account inactive")
 
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
     )
+    return ok(tokens)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=ApiResponse[TokenResponse])
 async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
@@ -58,12 +61,13 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),
     )
+    return ok(tokens)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=ApiResponse[UserResponse])
 async def me(user: User = Depends(current_user)):
-    return user
+    return ok(user)
