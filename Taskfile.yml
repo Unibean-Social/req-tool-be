@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+vars:
+  APP: app.main:app
+  PORT: "8000"
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  install:
+    desc: Install Python dependencies
+    cmds:
+      - pip install -r requirements.txt
+
+  install:dev:
+    desc: Install dev + test dependencies
+    cmds:
+      - pip install -r requirements.txt -r requirements-dev.txt
+
+  # ── Database ──────────────────────────────────────────────────────────────
+
+  db:upgrade:
+    desc: Run all pending Alembic migrations (upgrade head)
+    cmds:
+      - alembic upgrade head
+
+  db:downgrade:
+    desc: Downgrade one Alembic revision
+    cmds:
+      - alembic downgrade -1
+
+  db:revision:
+    desc: "Autogenerate a new migration — task db:revision -- 'add sprints table'"
+    cmds:
+      - alembic revision --autogenerate -m "{{.CLI_ARGS}}"
+
+  db:history:
+    desc: Show Alembic migration history
+    cmds:
+      - alembic history --verbose
+
+  db:current:
+    desc: Show current Alembic revision in the DB
+    cmds:
+      - alembic current
+
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  infra:up:
+    desc: Start PostgreSQL + pgAdmin in background
+    cmds:
+      - docker compose up -d
+
+  infra:down:
+    desc: Stop infrastructure
+    cmds:
+      - docker compose down
+
+  infra:logs:
+    desc: Tail infrastructure container logs
+    cmds:
+      - docker compose logs -f
+
+  infra:reset:
+    desc: Destroy volumes and restart fresh (DESTROYS ALL DATA)
+    cmds:
+      - docker compose down -v
+      - docker compose up -d
+
+  # ── App ───────────────────────────────────────────────────────────────────
+
+  dev:
+    desc: Run FastAPI with auto-reload (development)
+    cmds:
+      - uvicorn {{.APP}} --reload --host 127.0.0.1 --port {{.PORT}}
+
+  start:
+    desc: Run FastAPI in production mode (4 workers)
+    cmds:
+      - uvicorn {{.APP}} --host 0.0.0.0 --port {{.PORT}} --workers 4
+
+  # ── Quick start ───────────────────────────────────────────────────────────
+
+  up:
+    desc: Full local stack — infra up → migrate → dev server
+    cmds:
+      - task: infra:up
+      - task: db:upgrade
+      - task: dev
