@@ -9,10 +9,6 @@ version: "3"
 vars:
   APP: app.main:app
   PORT: "8000"
-  PYTHON:
-    sh: command -v python3 2>/dev/null || command -v python
-  PIP:
-    sh: test -f .venv/bin/pip && echo ".venv/bin/pip" || echo ".venv/Scripts/pip"
 
 tasks:
   default:
@@ -26,8 +22,14 @@ tasks:
   setup:
     desc: "First-time setup: create .venv and install all dependencies"
     cmds:
-      - "{{.PYTHON}} -m venv .venv"
-      - "{{.PIP}} install -r requirements.txt"
+      - cmd: python3 -m venv .venv
+        platforms: [linux, darwin]
+      - cmd: python -m venv .venv
+        platforms: [windows]
+      - cmd: .venv/bin/pip install -r requirements.txt
+        platforms: [linux, darwin]
+      - cmd: .venv\Scripts\pip install -r requirements.txt
+        platforms: [windows]
       - task --list
 
   # ── Database ──────────────────────────────────────────────────────────────
