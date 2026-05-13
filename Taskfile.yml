@@ -9,6 +9,8 @@ version: "3"
 vars:
   APP: app.main:app
   PORT: "8000"
+  PYTHON:
+    sh: command -v python3 2>/dev/null || command -v python
   PIP:
     sh: test -f .venv/bin/pip && echo ".venv/bin/pip" || echo ".venv/Scripts/pip"
 
@@ -24,7 +26,7 @@ tasks:
   setup:
     desc: "First-time setup: create .venv and install all dependencies"
     cmds:
-      - python -m venv .venv
+      - "{{.PYTHON}} -m venv .venv"
       - "{{.PIP}} install -r requirements.txt"
       - task --list
 
