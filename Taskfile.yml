@@ -15,10 +15,8 @@ version: "3"
 vars:
   APP: app.main:app
   PORT: "8000"
-
-env:
-  PATH:
-    sh: echo "$PWD/.venv/bin:$PATH"
+  ALEMBIC: '{{if eq OS "windows"}}.venv\Scripts\alembic{{else}}.venv/bin/alembic{{end}}'
+  UVICORN: '{{if eq OS "windows"}}.venv\Scripts\uvicorn{{else}}.venv/bin/uvicorn{{end}}'
 
 tasks:
   default:
@@ -50,7 +48,7 @@ tasks:
       - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
         msg: ".venv not found — run: task setup"
     cmds:
-      - alembic upgrade head
+      - "{{.ALEMBIC}} upgrade head"
 
   db:downgrade:
     desc: Downgrade one Alembic revision
@@ -58,7 +56,7 @@ tasks:
       - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
         msg: ".venv not found — run: task setup"
     cmds:
-      - alembic downgrade -1
+      - "{{.ALEMBIC}} downgrade -1"
 
   db:revision:
     desc: "Create a new migration — task db:revision -- 'describe your change'"
@@ -66,7 +64,7 @@ tasks:
       - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
         msg: ".venv not found — run: task setup"
     cmds:
-      - alembic revision --autogenerate -m "{{.CLI_ARGS}}"
+      - "{{.ALEMBIC}} revision --autogenerate -m '{{.CLI_ARGS}}'"
 
   db:history:
     desc: Show Alembic migration history
@@ -74,7 +72,7 @@ tasks:
       - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
         msg: ".venv not found — run: task setup"
     cmds:
-      - alembic history --verbose
+      - "{{.ALEMBIC}} history --verbose"
 
   db:current:
     desc: Show current Alembic revision in the DB
@@ -82,7 +80,7 @@ tasks:
       - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
         msg: ".venv not found — run: task setup"
     cmds:
-      - alembic current
+      - "{{.ALEMBIC}} current"
 
   # ── Infrastructure ────────────────────────────────────────────────────────
 
@@ -113,7 +111,7 @@ tasks:
     desc: Run FastAPI with auto-reload at http://127.0.0.1:8000 (runs migrations first)
     cmds:
       - task: db:upgrade
-      - uvicorn {{.APP}} --reload --host 127.0.0.1 --port {{.PORT}}
+      - "{{.UVICORN}} {{.APP}} --reload --host 127.0.0.1 --port {{.PORT}}"
     env:
       AUTO_MIGRATE: "false"
 
@@ -121,7 +119,7 @@ tasks:
     desc: Run FastAPI in production mode with 4 workers (runs migrations first)
     cmds:
       - task: db:upgrade
-      - uvicorn {{.APP}} --host 0.0.0.0 --port {{.PORT}} --workers 4
+      - "{{.UVICORN}} {{.APP}} --host 0.0.0.0 --port {{.PORT}} --workers 4"
     env:
       AUTO_MIGRATE: "false"
 
