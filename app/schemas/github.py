@@ -4,6 +4,10 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 
 
+class ConnectInitResponse(BaseModel):
+    redirect_url: str
+
+
 class GithubConnectRequest(BaseModel):
     repo_owner: str
     repo_name: str

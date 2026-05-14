@@ -11,7 +11,7 @@ from starlette.requests import Request
 from app.config import settings
 from app.database import engine
 from app.core.errors import http_exception_handler, validation_exception_handler, unhandled_exception_handler
-from app.routers import admin, auth, github_auth, users, organizations, projects, actors, requirements, github, sync, health
+from app.routers import admin, github_auth, users, organizations, projects, actors, requirements, github, sync, health
 
 
 def _run_migrations() -> None:
@@ -64,7 +64,6 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 api_v1 = APIRouter(prefix="/api/v1")
 api_v1.include_router(admin.router)
-api_v1.include_router(auth.router)
 api_v1.include_router(github_auth.router)
 api_v1.include_router(users.router)
 api_v1.include_router(organizations.router)

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import uuid
 import urllib.parse
 import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, status
@@ -10,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
 from app.models.user import User
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.core.crypto import encrypt_token
-from app.schemas.auth import TokenResponse
+from app.schemas.auth import RefreshRequest, TokenResponse
 from app.schemas.response import ApiResponse
 from app.core.responses import ok
 from app.deps import current_user
@@ -183,10 +184,28 @@ window.close();
     return HTMLResponse(html)
 
 
+@router.post("/refresh", response_model=ApiResponse[TokenResponse])
+async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    payload = decode_token(body.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    try:
+        uid = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    tokens = TokenResponse(
+        access_token=create_access_token(str(user.id), user.role),
+        refresh_token=create_refresh_token(str(user.id)),
+    )
+    return ok(tokens)
+
+
 @router.delete("/unlink", status_code=status.HTTP_204_NO_CONTENT)
 async def github_unlink(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
-    if not user.hashed_password:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Cannot unlink GitHub: no password set on account")
     user.github_id = None
     user.github_login = None
     user.github_access_token = None

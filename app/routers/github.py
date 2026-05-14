@@ -6,7 +6,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
-from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +19,7 @@ from app.core.github_client import (
     GithubClient,
 )
 from app.core.responses import created, ok
+from app.schemas.github import ConnectInitResponse
 from app.database import get_db
 from app.deps import current_user
 from app.models.github_connection import GithubConnection
@@ -125,11 +125,15 @@ def _verify_connect_state(state: str, cookie_nonce: str) -> tuple[uuid.UUID, uui
         return None
 
 
-# ── Connect — OAuth redirect ──────────────────────────────────────────────────
+# ── Connect — init (returns redirect URL for window.open) ────────────────────
 
 
-@router.get("/projects/{project_id}/github/connect", summary="Redirect to GitHub OAuth (repo scope)")
-async def github_connect_redirect(
+@router.post(
+    "/projects/{project_id}/github/connect/init",
+    response_model=ApiResponse[ConnectInitResponse],
+    summary="Get GitHub OAuth URL for repo connection (use with window.open)",
+)
+async def github_connect_init(
     project_id: uuid.UUID,
     response: Response,
     user: User = Depends(current_user),
@@ -144,8 +148,8 @@ async def github_connect_redirect(
         "scope": "repo",
         "state": state,
     }
-    redirect = RedirectResponse(f"{_GITHUB_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}")
-    redirect.set_cookie(
+    redirect_url = f"{_GITHUB_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+    response.set_cookie(
         _CONNECT_COOKIE,
         nonce,
         max_age=_COOKIE_MAX_AGE,
@@ -153,7 +157,7 @@ async def github_connect_redirect(
         secure=settings.app_env != "development",
         samesite="lax",
     )
-    return redirect
+    return ok(ConnectInitResponse(redirect_url=redirect_url))
 
 
 @router.get("/github/connect/callback", summary="GitHub OAuth callback for repo connection")
