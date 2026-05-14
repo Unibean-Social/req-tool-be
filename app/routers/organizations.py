@@ -160,6 +160,7 @@ async def add_member(
     member = OrgMember(org_id=org_id, user_id=target.id, role=body.role)
     db.add(member)
     await db.flush()
+    member.user = target
     return created(member)
 
 
