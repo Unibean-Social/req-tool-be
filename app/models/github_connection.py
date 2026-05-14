@@ -16,6 +16,10 @@ class GithubConnection(AuditMixin, Base):
     access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # not_started | in_progress | completed
     bootstrap_status: Mapped[str] = mapped_column(String(50), nullable=False, default="not_started")
+    # manual | auto_push
+    sync_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    # Fernet-encrypted webhook secret
+    webhook_secret: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="github_connection")  # noqa: F821

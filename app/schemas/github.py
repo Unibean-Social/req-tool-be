@@ -24,6 +24,7 @@ class GithubConnectionStatusResponse(BaseModel):
     repo_owner: str | None = None
     repo_name: str | None = None
     bootstrap_status: str
+    sync_mode: str = "manual"
 
 
 class BootstrapResourceResult(BaseModel):

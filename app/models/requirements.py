@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -117,6 +117,9 @@ class Story(AuditMixin, Base):
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
     references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
+    story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sprint_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # FK added Phase 2
+
     feature: Mapped["Feature"] = relationship(back_populates="stories")
     tasks: Mapped[list["Task"]] = relationship(back_populates="story", cascade="all, delete-orphan")
     acceptance_criteria: Mapped[list["AcceptanceCriteria"]] = relationship(
@@ -140,6 +143,10 @@ class Task(AuditMixin, Base):
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
     references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    estimated_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     story: Mapped["Story"] = relationship(back_populates="tasks")
 

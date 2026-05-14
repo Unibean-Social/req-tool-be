@@ -2,7 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from typing import Literal
+
 from pydantic import BaseModel, field_validator
+
+TaskCategory = Literal["api", "database", "ui", "auth", "testing", "devops", "documentation"]
 
 from app.models.requirements import CloseReasonEnum, ItemStatus, Priority
 
@@ -119,6 +123,7 @@ class StoryCreateRequest(BaseModel):
     goal_text: str | None = None
     priority: Priority = Priority.medium
     labels: list[str] = []
+    story_points: int | None = None
 
 
 class StoryUpdateRequest(BaseModel):
@@ -130,6 +135,7 @@ class StoryUpdateRequest(BaseModel):
     status: ItemStatus | None = None
     priority: Priority | None = None
     labels: list[str] | None = None
+    story_points: int | None = None
 
     @field_validator("status")
     @classmethod
@@ -171,6 +177,8 @@ class StoryResponse(BaseModel):
     priority: Priority
     labels: Any
     references: Any = None
+    story_points: int | None = None
+    sprint_id: uuid.UUID | None = None
     acceptance_criteria: list[AcceptanceCriteriaResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -184,6 +192,9 @@ class TaskCreateRequest(BaseModel):
     description: str | None = None
     priority: Priority = Priority.medium
     labels: list[str] = []
+    assignee_id: uuid.UUID | None = None
+    category: TaskCategory | None = None
+    estimated_hours: float | None = None
 
 
 class TaskUpdateRequest(BaseModel):
@@ -192,6 +203,9 @@ class TaskUpdateRequest(BaseModel):
     status: ItemStatus | None = None
     priority: Priority | None = None
     labels: list[str] | None = None
+    assignee_id: uuid.UUID | None = None
+    category: TaskCategory | None = None
+    estimated_hours: float | None = None
 
     @field_validator("status")
     @classmethod
@@ -214,6 +228,9 @@ class TaskResponse(BaseModel):
     priority: Priority
     labels: Any
     references: Any = None
+    assignee_id: uuid.UUID | None = None
+    category: str | None = None
+    estimated_hours: float | None = None
     created_at: datetime
     updated_at: datetime
 

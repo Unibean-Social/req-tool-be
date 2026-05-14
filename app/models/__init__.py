@@ -13,6 +13,7 @@ from app.models.requirements import (
     Task,
 )
 from app.models.sync import GithubItem, SyncLog, SyncQueue
+from app.models.sprint import Sprint, SprintStatus
 
 __all__ = [
     "Base",
@@ -31,4 +32,6 @@ __all__ = [
     "SyncQueue",
     "GithubItem",
     "SyncLog",
+    "Sprint",
+    "SprintStatus",
 ]

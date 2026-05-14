@@ -349,6 +349,7 @@ async def github_status(
         repo_owner=conn.repo_owner or None,
         repo_name=conn.repo_name or None,
         bootstrap_status=conn.bootstrap_status,
+        sync_mode=conn.sync_mode,
     ))
 
 

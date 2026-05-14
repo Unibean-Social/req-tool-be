@@ -443,6 +443,7 @@ async def create_story(
         goal_text=body.goal_text,
         priority=body.priority,
         labels=body.labels,
+        story_points=body.story_points,
     )
     db.add(story)
     await db.flush()
@@ -536,6 +537,8 @@ async def update_story(
         story.priority = body.priority
     if body.labels is not None:
         story.labels = body.labels
+    if body.story_points is not None:
+        story.story_points = body.story_points
     return ok(story)
 
 
@@ -678,6 +681,9 @@ async def create_task(
         description=body.description,
         priority=body.priority,
         labels=body.labels,
+        assignee_id=body.assignee_id,
+        category=body.category,
+        estimated_hours=body.estimated_hours,
     )
     db.add(task)
     await db.flush()
@@ -755,6 +761,12 @@ async def update_task(
         task.priority = body.priority
     if body.labels is not None:
         task.labels = body.labels
+    if body.assignee_id is not None:
+        task.assignee_id = body.assignee_id
+    if body.category is not None:
+        task.category = body.category
+    if body.estimated_hours is not None:
+        task.estimated_hours = body.estimated_hours
     return ok(task)
 
 
