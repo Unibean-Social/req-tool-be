@@ -1,0 +1,290 @@
+import uuid
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, field_validator, model_validator
+
+from app.models.requirements import CloseReasonEnum, ItemStatus, Priority
+
+
+class AcceptanceCriteriaIn(BaseModel):
+    description: str
+    order: int = 0
+
+
+class AcceptanceCriteriaResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    description: str
+    order: int
+
+
+# ── Epic ──────────────────────────────────────────────────────────────────────
+
+
+class EpicCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    priority: Priority = Priority.medium
+    labels: list[str] = []
+
+
+class EpicUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: ItemStatus | None = None
+    priority: Priority | None = None
+    labels: list[str] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
+        from app.models.requirements import TERMINAL_STATUSES
+        if v in TERMINAL_STATUSES:
+            raise ValueError("Use the /close endpoint to set a terminal status")
+        return v
+
+
+class EpicResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    prefix: str
+    title: str
+    description: str | None
+    status: ItemStatus
+    priority: Priority
+    labels: Any
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Feature ───────────────────────────────────────────────────────────────────
+
+
+class FeatureCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    priority: Priority = Priority.medium
+    labels: list[str] = []
+
+
+class FeatureUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: ItemStatus | None = None
+    priority: Priority | None = None
+    labels: list[str] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
+        from app.models.requirements import TERMINAL_STATUSES
+        if v in TERMINAL_STATUSES:
+            raise ValueError("Use the /close endpoint to set a terminal status")
+        return v
+
+
+class FeatureResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    epic_id: uuid.UUID
+    prefix: str
+    title: str
+    description: str | None
+    status: ItemStatus
+    priority: Priority
+    labels: Any
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Story ─────────────────────────────────────────────────────────────────────
+
+
+class StoryCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    actor_ref: str | None = None
+    action_text: str | None = None
+    goal_text: str | None = None
+    priority: Priority = Priority.medium
+    labels: list[str] = []
+
+
+class StoryUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    actor_ref: str | None = None
+    action_text: str | None = None
+    goal_text: str | None = None
+    status: ItemStatus | None = None
+    priority: Priority | None = None
+    labels: list[str] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
+        from app.models.requirements import TERMINAL_STATUSES
+        if v in TERMINAL_STATUSES:
+            raise ValueError("Use the /close endpoint to set a terminal status")
+        return v
+
+
+class StoryBuilderRequest(BaseModel):
+    feature_id: uuid.UUID
+    actor_ref: str
+    action_text: str
+    goal_text: str
+    priority: Priority = Priority.medium
+    labels: list[str] = []
+    acceptance_criteria: list[AcceptanceCriteriaIn]
+
+    @field_validator("acceptance_criteria")
+    @classmethod
+    def require_at_least_one_ac(cls, v: list) -> list:
+        if not v:
+            raise ValueError("BP-03: at least one acceptance criteria is required")
+        return v
+
+    @model_validator(mode="after")
+    def derive_title(self) -> "StoryBuilderRequest":
+        if not hasattr(self, "_title"):
+            self._title = f"As {self.actor_ref}, I want {self.action_text}, so that {self.goal_text}"
+        return self
+
+
+class StoryResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    feature_id: uuid.UUID
+    prefix: str
+    title: str
+    description: str | None
+    actor_ref: str | None
+    action_text: str | None
+    goal_text: str | None
+    status: ItemStatus
+    priority: Priority
+    labels: Any
+    acceptance_criteria: list[AcceptanceCriteriaResponse] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Task ──────────────────────────────────────────────────────────────────────
+
+
+class TaskCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    priority: Priority = Priority.medium
+    labels: list[str] = []
+
+
+class TaskUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: ItemStatus | None = None
+    priority: Priority | None = None
+    labels: list[str] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
+        from app.models.requirements import TERMINAL_STATUSES
+        if v in TERMINAL_STATUSES:
+            raise ValueError("Use the /close endpoint to set a terminal status")
+        return v
+
+
+class TaskResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    story_id: uuid.UUID
+    prefix: str
+    title: str
+    description: str | None
+    status: ItemStatus
+    priority: Priority
+    labels: Any
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Close ─────────────────────────────────────────────────────────────────────
+
+
+class CloseRequest(BaseModel):
+    reason: CloseReasonEnum
+    comment: str
+
+    @field_validator("comment")
+    @classmethod
+    def comment_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("comment must not be empty")
+        return v
+
+
+class CloseReasonResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    item_type: str
+    item_id: uuid.UUID
+    reason: CloseReasonEnum
+    comment: str
+    closed_by: uuid.UUID
+    created_at: datetime
+
+
+# ── Hierarchy Tree ────────────────────────────────────────────────────────────
+
+
+class TaskTree(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    prefix: str
+    title: str
+    status: ItemStatus
+    priority: Priority
+
+
+class StoryTree(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    prefix: str
+    title: str
+    status: ItemStatus
+    priority: Priority
+    tasks: list[TaskTree] = []
+
+
+class FeatureTree(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    prefix: str
+    title: str
+    status: ItemStatus
+    priority: Priority
+    stories: list[StoryTree] = []
+
+
+class EpicTree(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    prefix: str
+    title: str
+    status: ItemStatus
+    priority: Priority
+    features: list[FeatureTree] = []
