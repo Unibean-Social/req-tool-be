@@ -57,4 +57,12 @@ class UserSearchResult(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str | None
+    github_id: str | None
     github_login: str | None
+
+    @computed_field
+    @property
+    def github_avatar_url(self) -> str | None:
+        if self.github_id:
+            return f"https://avatars.githubusercontent.com/u/{self.github_id}"
+        return None
