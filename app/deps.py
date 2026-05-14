@@ -29,3 +29,9 @@ async def current_user(
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
     return user
+
+
+async def require_admin(user: User = Depends(current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return user

@@ -10,6 +10,11 @@ class GithubConnectRequest(BaseModel):
     access_token: str
 
 
+class GithubSelectRepoRequest(BaseModel):
+    repo_owner: str
+    repo_name: str
+
+
 class GithubConnectionStatusResponse(BaseModel):
     connected: bool
     repo_owner: str | None = None

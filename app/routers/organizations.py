@@ -1,4 +1,5 @@
 import re
+import secrets
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,15 +31,13 @@ def _slugify(name: str) -> str:
 
 async def _unique_slug(db: AsyncSession, base: str, model, scope_col=None, scope_val=None) -> str:
     slug = base
-    counter = 2
     while True:
         q = select(model).where(model.slug == slug)
         if scope_col is not None:
             q = q.where(scope_col == scope_val)
         if not (await db.execute(q)).scalar_one_or_none():
             return slug
-        slug = f"{base}-{counter}"
-        counter += 1
+        slug = f"{base}-{secrets.token_hex(3)}"
 
 
 async def _require_member(org_id: uuid.UUID, user: User, db: AsyncSession) -> OrgMember:

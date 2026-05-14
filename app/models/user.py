@@ -10,6 +10,7 @@ class User(AuditMixin, Base):
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")  # "user" | "admin"
 
     # GitHub identity (linked via OAuth)
     github_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True, index=True)

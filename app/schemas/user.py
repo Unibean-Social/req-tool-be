@@ -10,6 +10,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     full_name: str | None
     is_active: bool
+    role: str
     github_login: str | None
     created_at: datetime
 

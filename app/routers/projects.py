@@ -1,4 +1,5 @@
 import re
+import secrets
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,12 +51,10 @@ async def create_project(
 
     base = _slugify(body.name)
     slug = base
-    counter = 2
     while (await db.execute(
         select(Project).where(Project.org_id == org_id, Project.slug == slug)
     )).scalar_one_or_none():
-        slug = f"{base}-{counter}"
-        counter += 1
+        slug = f"{base}-{secrets.token_hex(3)}"
 
     project = Project(org_id=org_id, name=body.name, slug=slug, description=body.description)
     db.add(project)

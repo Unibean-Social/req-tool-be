@@ -170,7 +170,7 @@ async def github_callback(
         db.add(user)
 
     await db.flush()
-    access_token = create_access_token(str(user.id))
+    access_token = create_access_token(str(user.id), user.role)
     refresh_token = create_refresh_token(str(user.id))
     # Popup pattern: trả HTML tự postMessage token về opener rồi đóng
     html = f"""<!doctype html><html><body><script>

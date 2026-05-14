@@ -39,6 +39,7 @@ from app.schemas.github import (
     GithubConnectRequest,
     GithubConnectionStatusResponse,
     GithubIssuePreview,
+    GithubSelectRepoRequest,
     ImportConfirmRequest,
     ImportPreviewResponse,
     ImportedItem,
@@ -266,6 +267,38 @@ async def github_connect_pat(
 
     await db.flush()
     return created(GithubConnectionStatusResponse(
+        connected=True,
+        repo_owner=conn.repo_owner,
+        repo_name=conn.repo_name,
+        bootstrap_status=conn.bootstrap_status,
+    ))
+
+
+# ── Select repo after OAuth connect (token already stored) ───────────────────
+
+
+@router.patch(
+    "/projects/{project_id}/github/connect",
+    response_model=ApiResponse[GithubConnectionStatusResponse],
+)
+async def github_select_repo(
+    project_id: uuid.UUID,
+    body: GithubSelectRepoRequest,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set repo_owner/repo_name after OAuth callback has already stored the token."""
+    await _require_project_access(project_id, user, db)
+    conn = await _require_connection(project_id, db)
+    gh = _get_client(conn)
+    try:
+        await gh.get(f"/repos/{body.repo_owner}/{body.repo_name}")
+    except HTTPException as exc:
+        raise HTTPException(exc.status_code, detail=f"Cannot access repo: {exc.detail}")
+    conn.repo_owner = body.repo_owner
+    conn.repo_name = body.repo_name
+    await db.flush()
+    return ok(GithubConnectionStatusResponse(
         connected=True,
         repo_owner=conn.repo_owner,
         repo_name=conn.repo_name,

@@ -40,7 +40,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Account inactive")
 
     tokens = TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.role),
         refresh_token=create_refresh_token(str(user.id)),
     )
     return ok(tokens)
@@ -62,12 +62,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     tokens = TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), user.role),
         refresh_token=create_refresh_token(str(user.id)),
     )
     return ok(tokens)
-
-
-@router.get("/me", response_model=ApiResponse[UserResponse])
-async def me(user: User = Depends(current_user)):
-    return ok(user)
