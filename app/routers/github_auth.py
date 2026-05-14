@@ -5,7 +5,7 @@ import os
 import urllib.parse
 import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -170,11 +170,17 @@ async def github_callback(
         db.add(user)
 
     await db.flush()
-    tokens = TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
-    )
-    return ok(tokens)
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
+    # Popup pattern: trả HTML tự postMessage token về opener rồi đóng
+    html = f"""<!doctype html><html><body><script>
+window.opener && window.opener.postMessage(
+  {{"type":"github_oauth","access_token":"{access_token}","refresh_token":"{refresh_token}"}},
+  "*"
+);
+window.close();
+</script><p>Đang đóng cửa sổ...</p></body></html>"""
+    return HTMLResponse(html)
 
 
 @router.delete("/unlink", status_code=status.HTTP_204_NO_CONTENT)
