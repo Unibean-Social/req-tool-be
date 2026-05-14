@@ -15,6 +15,7 @@ from app.schemas.organization import (
     OrgCreateRequest,
     OrgMemberResponse,
     OrgResponse,
+    BulkAddMemberResponse,
 )
 from app.schemas.response import ApiResponse
 from app.deps import current_user
@@ -134,7 +135,7 @@ async def list_members(
 
 
 
-@router.post("/{org_id}/members", response_model=ApiResponse[OrgMemberResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/{org_id}/members", response_model=ApiResponse[BulkAddMemberResponse], status_code=status.HTTP_201_CREATED)
 async def add_member(
     org_id: uuid.UUID,
     body: AddMemberRequest,
@@ -143,25 +144,36 @@ async def add_member(
 ):
     await _require_owner(org_id, user, db)
 
-    target = (await db.execute(
-        select(User).where(
-            or_(User.email == body.identifier, User.github_login == body.identifier)
-        )
-    )).scalar_one_or_none()
-    if not target:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found with that email or GitHub username")
+    added: list[OrgMemberResponse] = []
+    skipped: list[str] = []
+    not_found: list[str] = []
 
-    existing = await db.execute(
-        select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == target.id)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="User is already a member")
+    for item in body.members:
+        target = (await db.execute(
+            select(User).where(
+                or_(User.email == item.identifier, User.github_login == item.identifier)
+            )
+        )).scalar_one_or_none()
 
-    member = OrgMember(org_id=org_id, user_id=target.id, role=body.role)
-    db.add(member)
-    await db.flush()
-    member.user = target
-    return created(member)
+        if not target:
+            not_found.append(item.identifier)
+            continue
+
+        existing = (await db.execute(
+            select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == target.id)
+        )).scalar_one_or_none()
+
+        if existing:
+            skipped.append(item.identifier)
+            continue
+
+        member = OrgMember(org_id=org_id, user_id=target.id, role=item.role)
+        db.add(member)
+        await db.flush()
+        member.user = target
+        added.append(member)
+
+    return created(BulkAddMemberResponse(added=added, skipped=skipped, not_found=not_found))
 
 
 @router.delete("/{org_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

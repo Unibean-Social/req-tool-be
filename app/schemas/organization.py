@@ -46,9 +46,19 @@ class OrgMemberResponse(BaseModel):
     user: MemberUserInfo | None = None
 
 
-class AddMemberRequest(BaseModel):
+class AddMemberItem(BaseModel):
     identifier: str = Field(min_length=1, max_length=255)
     role: Literal["owner", "member"] = "member"
+
+
+class AddMemberRequest(BaseModel):
+    members: list[AddMemberItem] = Field(min_length=1, max_length=50)
+
+
+class BulkAddMemberResponse(BaseModel):
+    added: list[OrgMemberResponse]
+    skipped: list[str]
+    not_found: list[str]
 
 
 class UserSearchResult(BaseModel):
