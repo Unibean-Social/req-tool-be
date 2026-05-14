@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/auth/github/callback"
     github_repo_connect_redirect_uri: str = "http://localhost:8000/api/v1/github/connect/callback"
+    # Separate HMAC key for OAuth CSRF state tokens — must not share jwt_secret_key
+    github_state_secret: str = ""
 
     # App
     app_env: str = "development"
@@ -47,6 +49,8 @@ class Settings(BaseSettings):
                 raise ValueError("PASSWORD_PEPPER must be set in non-development environments")
             if not self.github_client_id or not self.github_client_secret:
                 raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in non-development environments")
+            if not self.github_state_secret:
+                raise ValueError("GITHUB_STATE_SECRET must be set in non-development environments")
         return self
 
 

@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -62,6 +62,7 @@ _item_type = SAEnum(ItemType, name="item_type")
 
 class Epic(AuditMixin, Base):
     __tablename__ = "epics"
+    __table_args__ = (UniqueConstraint("project_id", "prefix", name="uq_epics_project_prefix"),)
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
@@ -80,6 +81,7 @@ class Epic(AuditMixin, Base):
 
 class Feature(AuditMixin, Base):
     __tablename__ = "features"
+    __table_args__ = (UniqueConstraint("epic_id", "prefix", name="uq_features_epic_prefix"),)
 
     epic_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("epics.id", ondelete="CASCADE"), nullable=False, index=True
@@ -99,6 +101,7 @@ class Feature(AuditMixin, Base):
 
 class Story(AuditMixin, Base):
     __tablename__ = "stories"
+    __table_args__ = (UniqueConstraint("feature_id", "prefix", name="uq_stories_feature_prefix"),)
 
     feature_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("features.id", ondelete="CASCADE"), nullable=False, index=True
@@ -125,6 +128,7 @@ class Story(AuditMixin, Base):
 
 class Task(AuditMixin, Base):
     __tablename__ = "tasks"
+    __table_args__ = (UniqueConstraint("story_id", "prefix", name="uq_tasks_story_prefix"),)
 
     story_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True

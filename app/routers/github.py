@@ -89,9 +89,21 @@ def _get_client(conn: GithubConnection) -> GithubClient:
 # ── State helpers (OAuth CSRF protection) ────────────────────────────────────
 
 
+def _state_hmac_key() -> bytes:
+    """Return the HMAC key for OAuth state tokens.
+
+    Uses GITHUB_STATE_SECRET when configured; falls back to a domain-namespaced
+    derivative of jwt_secret_key in development so the two secrets are never
+    interchangeable even when only one key is set.
+    """
+    if settings.github_state_secret:
+        return settings.github_state_secret.encode()
+    return (settings.jwt_secret_key + ":github-oauth-csrf").encode()
+
+
 def _make_connect_state(project_id: uuid.UUID, user_id: uuid.UUID, nonce: str) -> str:
     payload = f"{project_id}:{user_id}:{nonce}"
-    sig = hmac.new(settings.jwt_secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{sig}"
 
 
@@ -101,7 +113,7 @@ def _verify_connect_state(state: str, cookie_nonce: str) -> tuple[uuid.UUID, uui
         project_id_str, user_id_str, nonce = payload.split(":", 2)
     except ValueError:
         return None
-    expected = hmac.new(settings.jwt_secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    expected = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, sig):
         return None
     if not hmac.compare_digest(nonce, cookie_nonce):
@@ -161,6 +173,14 @@ async def github_connect_callback(
     _secure = settings.app_env != "development"
     response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
 
+    # Re-verify the user still exists and is still a member of this project's org.
+    # Membership may have been revoked after the OAuth flow was initiated.
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user_obj = user_result.scalar_one_or_none()
+    if not user_obj:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    await _require_project_access(project_id, user_obj, db)
+
     import httpx
     async with httpx.AsyncClient() as client:
         try:
@@ -182,14 +202,6 @@ async def github_connect_callback(
     access_token = token_resp.json().get("access_token")
     if not access_token:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="GitHub did not return an access token")
-
-    gh = GithubClient(access_token)
-    repo_data = await gh.get("/user/repos", params={"per_page": 1})
-
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     encrypted = encrypt_token(access_token)
     result = await db.execute(select(GithubConnection).where(GithubConnection.project_id == project_id))

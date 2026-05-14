@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator
 
 from app.models.requirements import CloseReasonEnum, ItemStatus, Priority
 
@@ -155,13 +155,6 @@ class StoryBuilderRequest(BaseModel):
         if not v:
             raise ValueError("BP-03: at least one acceptance criteria is required")
         return v
-
-    @model_validator(mode="after")
-    def derive_title(self) -> "StoryBuilderRequest":
-        if not hasattr(self, "_title"):
-            self._title = f"As {self.actor_ref}, I want {self.action_text}, so that {self.goal_text}"
-        return self
-
 
 class StoryResponse(BaseModel):
     model_config = {"from_attributes": True}

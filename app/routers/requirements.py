@@ -447,7 +447,12 @@ async def create_story(
     db.add(story)
     await db.flush()
     _update_parent_references(feature, story.prefix, "add")
-    await db.refresh(story, ["acceptance_criteria"])
+    result = await db.execute(
+        select(Story)
+        .where(Story.id == story.id)
+        .options(selectinload(Story.acceptance_criteria))
+    )
+    story = result.scalar_one()
     return created(story)
 
 
@@ -635,7 +640,12 @@ async def story_builder(
 
     await db.flush()
     _update_parent_references(feature, story.prefix, "add")
-    await db.refresh(story, ["acceptance_criteria"])
+    result = await db.execute(
+        select(Story)
+        .where(Story.id == story.id)
+        .options(selectinload(Story.acceptance_criteria))
+    )
+    story = result.scalar_one()
     return created(story)
 
 

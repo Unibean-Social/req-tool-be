@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from sqlalchemy import select
@@ -108,7 +109,7 @@ async def _get_parent_id(item_type: str, item: Any) -> uuid.UUID | None:
     return None
 
 
-async def _parent_type(item_type: str) -> str | None:
+def _parent_type(item_type: str) -> str | None:
     return {"feature": "epic", "story": "feature", "task": "story"}.get(item_type)
 
 
@@ -258,7 +259,7 @@ async def _push_one(
         )
 
     # Parent dependency check
-    p_type = (await _parent_type(item_type))
+    p_type = _parent_type(item_type)
     if p_type:
         # Determine parent id by loading a minimal view of the item
         parent_item = await _get_parent_for_push(item_type, item_id, db)
@@ -297,6 +298,7 @@ async def _push_one(
     )
     existing_gi = gi_result.scalar_one_or_none()
 
+    queue_id = row.id  # capture before any db.delete(row) — row.id still accessible but FK would be gone
     try:
         if row.operation == SyncOperation.close:
             if existing_gi:
@@ -306,7 +308,7 @@ async def _push_one(
                 )
             issue_number = existing_gi.github_issue_number if existing_gi else None
             issue_url = existing_gi.github_issue_url if existing_gi else None
-            if row.id:
+            if queue_id:
                 await db.delete(row)
         elif row.operation == SyncOperation.update and existing_gi:
             resp = await gh.patch(
@@ -347,7 +349,7 @@ async def _push_one(
 
         log = SyncLog(
             project_id=row.project_id,
-            sync_queue_id=row.id,
+            sync_queue_id=queue_id,
             item_type=row.item_type,
             item_id=item_id,
             operation=row.operation,
@@ -365,17 +367,18 @@ async def _push_one(
             error_message=None,
         )
 
-    except HTTPException as exc:
+    except (HTTPException, httpx.HTTPError) as exc:
         row.status = SyncQueueStatus.failed
+        error_msg = str(exc.detail)[:1000] if isinstance(exc, HTTPException) else str(exc)[:1000]
         log = SyncLog(
             project_id=row.project_id,
-            sync_queue_id=row.id,
+            sync_queue_id=queue_id,
             item_type=row.item_type,
             item_id=item_id,
             operation=row.operation,
             status=SyncLogStatus.failed,
             error_code="GITHUB_API_ERROR",
-            error_message=str(exc.detail)[:1000],
+            error_message=error_msg,
         )
         db.add(log)
         return PushResultItem(
@@ -384,7 +387,7 @@ async def _push_one(
             github_issue_number=None,
             github_issue_url=None,
             error_code="GITHUB_API_ERROR",
-            error_message=str(exc.detail),
+            error_message=error_msg,
         )
 
 
@@ -598,7 +601,8 @@ async def _push_repush(
             error_code=None,
             error_message=None,
         )
-    except HTTPException as exc:
+    except (HTTPException, httpx.HTTPError) as exc:
+        error_msg = str(exc.detail)[:1000] if isinstance(exc, HTTPException) else str(exc)[:1000]
         log = SyncLog(
             project_id=row.project_id,
             sync_queue_id=None,
@@ -607,7 +611,7 @@ async def _push_repush(
             operation=row.operation,
             status=SyncLogStatus.failed,
             error_code="GITHUB_API_ERROR",
-            error_message=str(exc.detail)[:1000],
+            error_message=error_msg,
         )
         db.add(log)
         return PushResultItem(
@@ -616,5 +620,5 @@ async def _push_repush(
             github_issue_number=None,
             github_issue_url=None,
             error_code="GITHUB_API_ERROR",
-            error_message=str(exc.detail),
+            error_message=error_msg,
         )

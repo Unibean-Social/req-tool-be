@@ -50,12 +50,6 @@ class ImportMappingItem(BaseModel):
     title: str | None = None
     parent_github_issue_number: int | None = None
 
-    @field_validator("parent_github_issue_number")
-    @classmethod
-    def epics_have_no_parent(cls, v: int | None, info: object) -> int | None:
-        return v
-
-
 class ImportConfirmRequest(BaseModel):
     mappings: list[ImportMappingItem]
 

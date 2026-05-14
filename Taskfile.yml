@@ -1,12 +1,6 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: "3"
 
-# ── Prerequisites ─────────────────────────────────────────────────────────────
-#   Install task:  brew install go-task          (macOS)
-#                  scoop install task            (Windows)
-#                  sh -c "$(curl -ssL https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin  (Linux)
-#   Install Docker Desktop for infra tasks.
-#
 # ── New here? Three commands to get started: ──────────────────────────────────
 #   task setup       — create .venv and install all dependencies
 #   task infra:up    — start PostgreSQL + pgAdmin via Docker
@@ -15,8 +9,10 @@ version: "3"
 vars:
   APP: app.main:app
   PORT: "8000"
-  ALEMBIC: '{{if eq OS "windows"}}.venv\Scripts\alembic{{else}}.venv/bin/alembic{{end}}'
-  UVICORN: '{{if eq OS "windows"}}.venv\Scripts\uvicorn{{else}}.venv/bin/uvicorn{{end}}'
+  VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
+  ALEMBIC: '{{if eq OS "windows"}}.venv/Scripts/alembic{{else}}.venv/bin/alembic{{end}}'
+  UVICORN: '{{if eq OS "windows"}}.venv/Scripts/uvicorn{{else}}.venv/bin/uvicorn{{end}}'
+  VENV_CHECK: '{{if eq OS "windows"}}.venv/Scripts/pip.exe{{else}}.venv/bin/pip{{end}}'
 
 tasks:
   default:
@@ -45,7 +41,7 @@ tasks:
   db:upgrade:
     desc: Run all pending Alembic migrations (upgrade head)
     preconditions:
-      - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
+      - sh: test -f "{{.VENV_CHECK}}"
         msg: ".venv not found — run: task setup"
     cmds:
       - "{{.ALEMBIC}} upgrade head"
@@ -53,7 +49,7 @@ tasks:
   db:downgrade:
     desc: Downgrade one Alembic revision
     preconditions:
-      - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
+      - sh: test -f "{{.VENV_CHECK}}"
         msg: ".venv not found — run: task setup"
     cmds:
       - "{{.ALEMBIC}} downgrade -1"
@@ -61,7 +57,7 @@ tasks:
   db:revision:
     desc: "Create a new migration — task db:revision -- 'describe your change'"
     preconditions:
-      - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
+      - sh: test -f "{{.VENV_CHECK}}"
         msg: ".venv not found — run: task setup"
     cmds:
       - "{{.ALEMBIC}} revision --autogenerate -m '{{.CLI_ARGS}}'"
@@ -69,7 +65,7 @@ tasks:
   db:history:
     desc: Show Alembic migration history
     preconditions:
-      - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
+      - sh: test -f "{{.VENV_CHECK}}"
         msg: ".venv not found — run: task setup"
     cmds:
       - "{{.ALEMBIC}} history --verbose"
@@ -77,7 +73,7 @@ tasks:
   db:current:
     desc: Show current Alembic revision in the DB
     preconditions:
-      - sh: test -f .venv/bin/alembic || test -f .venv/Scripts/alembic
+      - sh: test -f "{{.VENV_CHECK}}"
         msg: ".venv not found — run: task setup"
     cmds:
       - "{{.ALEMBIC}} current"

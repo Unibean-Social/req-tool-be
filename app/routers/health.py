@@ -2,7 +2,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, cast, func, select
+from sqlalchemy import and_, case, cast, func, literal_column, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,8 +51,6 @@ async def _require_project_access(project_id: uuid.UUID, user: User, db: AsyncSe
 
 
 def _label_complete_filter(labels_col):
-    """SQLAlchemy filter: labels JSON array contains ≥1 entry per required prefix."""
-    from sqlalchemy import literal_column
     j = cast(labels_col, JSONB)
     return and_(*(
         j.op("@?")(literal_column(f"'$[*] ? (@ starts with \"{p}\")'::jsonpath"))
@@ -71,127 +69,114 @@ async def get_health(
 ):
     await _require_project_access(project_id, user, db)
 
-    # ── AC coverage ────────────────────────────────────────────────────────────
-    total_stories = await db.scalar(
-        select(func.count(Story.id))
+    r = await db.execute(
+        select(
+            func.count(Epic.id).label("total"),
+            func.count(Epic.id).filter(_label_complete_filter(Epic.labels)).label("labeled"),
+        ).where(Epic.project_id == project_id)
+    )
+    _epic = r.one()
+    epic_total, epic_labeled = _epic.total or 0, _epic.labeled or 0
+
+    # ── Feature: label completeness ───────────────────────────────────────────
+    r = await db.execute(
+        select(
+            func.count(Feature.id).label("total"),
+            func.count(Feature.id).filter(_label_complete_filter(Feature.labels)).label("labeled"),
+        )
+        .join(Epic, Feature.epic_id == Epic.id)
+        .where(Epic.project_id == project_id)
+    )
+    _feat = r.one()
+    feature_total, feature_labeled = _feat.total or 0, _feat.labeled or 0
+
+    r = await db.execute(
+        select(
+            func.count(func.distinct(Story.id)).label("total"),
+            func.count(func.distinct(
+                case((_label_complete_filter(Story.labels), Story.id))
+            )).label("labeled"),
+            func.count(func.distinct(AcceptanceCriteria.story_id)).label("with_ac"),
+        )
+        .outerjoin(AcceptanceCriteria, AcceptanceCriteria.story_id == Story.id)
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
         .where(Epic.project_id == project_id)
-    ) or 0
+    )
+    _story = r.one()
+    story_total = _story.total or 0
+    story_labeled = _story.labeled or 0
+    stories_with_ac = _story.with_ac or 0
+    ac_coverage = 100 if story_total == 0 else round(stories_with_ac / story_total * 100)
 
-    stories_with_ac = await db.scalar(
-        select(func.count(func.distinct(AcceptanceCriteria.story_id)))
-        .join(Story, AcceptanceCriteria.story_id == Story.id)
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
-
-    ac_coverage = 100 if total_stories == 0 else round(stories_with_ac / total_stories * 100)
-
-    # ── Label completeness ────────────────────────────────────────────────────
-    epic_total = await db.scalar(
-        select(func.count(Epic.id)).where(Epic.project_id == project_id)
-    ) or 0
-    epic_labeled = await db.scalar(
-        select(func.count(Epic.id)).where(Epic.project_id == project_id, _label_complete_filter(Epic.labels))
-    ) or 0
-
-    feature_total = await db.scalar(
-        select(func.count(Feature.id))
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
-    feature_labeled = await db.scalar(
-        select(func.count(Feature.id))
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id, _label_complete_filter(Feature.labels))
-    ) or 0
-
-    story_total = await db.scalar(
-        select(func.count(Story.id))
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
-    story_labeled = await db.scalar(
-        select(func.count(Story.id))
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id, _label_complete_filter(Story.labels))
-    ) or 0
-
-    task_total = await db.scalar(
-        select(func.count(Task.id))
+    r = await db.execute(
+        select(
+            func.count(Task.id).label("total"),
+            func.count(Task.id).filter(_label_complete_filter(Task.labels)).label("labeled"),
+        )
         .join(Story, Task.story_id == Story.id)
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
         .where(Epic.project_id == project_id)
-    ) or 0
-    task_labeled = await db.scalar(
-        select(func.count(Task.id))
-        .join(Story, Task.story_id == Story.id)
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id, _label_complete_filter(Task.labels))
-    ) or 0
+    )
+    _task = r.one()
+    task_total, task_labeled = _task.total or 0, _task.labeled or 0
 
     total_items = epic_total + feature_total + story_total + task_total
     total_labeled = epic_labeled + feature_labeled + story_labeled + task_labeled
     label_completeness = 100 if total_items == 0 else round(total_labeled / total_items * 100)
 
-    # ── Close hygiene ─────────────────────────────────────────────────────────
-    epic_closed = await db.scalar(
-        select(func.count(Epic.id))
+    r = await db.execute(
+        select(
+            func.count(func.distinct(Epic.id)).label("closed"),
+            func.count(func.distinct(CloseReason.item_id)).label("with_reason"),
+        )
+        .outerjoin(CloseReason, and_(CloseReason.item_id == Epic.id, CloseReason.item_type == ItemType.epic))
         .where(Epic.project_id == project_id, Epic.status.in_(TERMINAL_STATUSES))
-    ) or 0
-    feature_closed = await db.scalar(
-        select(func.count(Feature.id))
+    )
+    _eh = r.one()
+    epic_closed, epic_with_reason = _eh.closed or 0, _eh.with_reason or 0
+
+    r = await db.execute(
+        select(
+            func.count(func.distinct(Feature.id)).label("closed"),
+            func.count(func.distinct(CloseReason.item_id)).label("with_reason"),
+        )
+        .outerjoin(CloseReason, and_(CloseReason.item_id == Feature.id, CloseReason.item_type == ItemType.feature))
         .join(Epic, Feature.epic_id == Epic.id)
         .where(Epic.project_id == project_id, Feature.status.in_(TERMINAL_STATUSES))
-    ) or 0
-    story_closed = await db.scalar(
-        select(func.count(Story.id))
+    )
+    _fh = r.one()
+    feature_closed, feature_with_reason = _fh.closed or 0, _fh.with_reason or 0
+
+    r = await db.execute(
+        select(
+            func.count(func.distinct(Story.id)).label("closed"),
+            func.count(func.distinct(CloseReason.item_id)).label("with_reason"),
+        )
+        .outerjoin(CloseReason, and_(CloseReason.item_id == Story.id, CloseReason.item_type == ItemType.story))
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
         .where(Epic.project_id == project_id, Story.status.in_(TERMINAL_STATUSES))
-    ) or 0
-    task_closed = await db.scalar(
-        select(func.count(Task.id))
+    )
+    _sh = r.one()
+    story_closed, story_with_reason = _sh.closed or 0, _sh.with_reason or 0
+
+    r = await db.execute(
+        select(
+            func.count(func.distinct(Task.id)).label("closed"),
+            func.count(func.distinct(CloseReason.item_id)).label("with_reason"),
+        )
+        .outerjoin(CloseReason, and_(CloseReason.item_id == Task.id, CloseReason.item_type == ItemType.task))
         .join(Story, Task.story_id == Story.id)
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
         .where(Epic.project_id == project_id, Task.status.in_(TERMINAL_STATUSES))
-    ) or 0
-    total_closed = epic_closed + feature_closed + story_closed + task_closed
+    )
+    _th = r.one()
+    task_closed, task_with_reason = _th.closed or 0, _th.with_reason or 0
 
-    # Use DISTINCT item_id so multiple CloseReason rows per item don't inflate the count
-    epic_with_reason = await db.scalar(
-        select(func.count(func.distinct(CloseReason.item_id)))
-        .join(Epic, and_(CloseReason.item_id == Epic.id, CloseReason.item_type == ItemType.epic))
-        .where(Epic.project_id == project_id)
-    ) or 0
-    feature_with_reason = await db.scalar(
-        select(func.count(func.distinct(CloseReason.item_id)))
-        .join(Feature, and_(CloseReason.item_id == Feature.id, CloseReason.item_type == ItemType.feature))
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
-    story_with_reason = await db.scalar(
-        select(func.count(func.distinct(CloseReason.item_id)))
-        .join(Story, and_(CloseReason.item_id == Story.id, CloseReason.item_type == ItemType.story))
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
-    task_with_reason = await db.scalar(
-        select(func.count(func.distinct(CloseReason.item_id)))
-        .join(Task, and_(CloseReason.item_id == Task.id, CloseReason.item_type == ItemType.task))
-        .join(Story, Task.story_id == Story.id)
-        .join(Feature, Story.feature_id == Feature.id)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Epic.project_id == project_id)
-    ) or 0
+    total_closed = epic_closed + feature_closed + story_closed + task_closed
     total_with_reason = epic_with_reason + feature_with_reason + story_with_reason + task_with_reason
     close_hygiene = 100 if total_closed == 0 else round(total_with_reason / total_closed * 100)
 
