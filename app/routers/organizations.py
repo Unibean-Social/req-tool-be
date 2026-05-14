@@ -23,8 +23,8 @@ router = APIRouter(prefix="/orgs", tags=["organizations"])
 
 
 def _slugify(name: str) -> str:
-    # Normalize Unicode → decompose accents (NFD), then strip combining marks
-    slug = unicodedata.normalize("NFD", name)
+    slug = name.translate(str.maketrans("đĐ", "dD"))
+    slug = unicodedata.normalize("NFD", slug)
     slug = "".join(c for c in slug if unicodedata.category(c) != "Mn")
     slug = slug.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)
