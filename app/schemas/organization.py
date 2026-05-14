@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class OrgCreateRequest(BaseModel):
@@ -24,8 +24,15 @@ class MemberUserInfo(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str | None
+    github_id: str | None
     github_login: str | None
-    github_avatar_url: str | None
+
+    @computed_field
+    @property
+    def github_avatar_url(self) -> str | None:
+        if self.github_id:
+            return f"https://avatars.githubusercontent.com/u/{self.github_id}"
+        return None
 
 
 class OrgMemberResponse(BaseModel):
