@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 class OrgCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
 
 
 class OrgResponse(BaseModel):
@@ -30,5 +29,14 @@ class OrgMemberResponse(BaseModel):
 
 
 class AddMemberRequest(BaseModel):
-    user_id: uuid.UUID
+    identifier: str = Field(min_length=1, max_length=255)
     role: Literal["owner", "member"] = "member"
+
+
+class UserSearchResult(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    email: str
+    full_name: str | None
+    github_login: str | None

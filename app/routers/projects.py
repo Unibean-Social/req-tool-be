@@ -1,3 +1,4 @@
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,14 @@ from app.schemas.response import ApiResponse
 from app.deps import current_user
 
 router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["projects"])
+
+
+def _slugify(name: str) -> str:
+    slug = name.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-")[:100] or "project"
 
 
 async def _require_org_member(org_id: uuid.UUID, user: User, db: AsyncSession) -> OrgMember:
@@ -39,13 +48,16 @@ async def create_project(
 ):
     await _require_org_member(org_id, user, db)
 
-    existing = await db.execute(
-        select(Project).where(Project.org_id == org_id, Project.slug == body.slug)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="Slug already taken in this org")
+    base = _slugify(body.name)
+    slug = base
+    counter = 2
+    while (await db.execute(
+        select(Project).where(Project.org_id == org_id, Project.slug == slug)
+    )).scalar_one_or_none():
+        slug = f"{base}-{counter}"
+        counter += 1
 
-    project = Project(org_id=org_id, name=body.name, slug=body.slug, description=body.description)
+    project = Project(org_id=org_id, name=body.name, slug=slug, description=body.description)
     db.add(project)
     await db.flush()
     return created(project)

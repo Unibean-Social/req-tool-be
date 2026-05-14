@@ -273,6 +273,23 @@ async def github_connect_pat(
     ))
 
 
+# ── List accessible repos (requires existing connection token) ────────────────
+
+
+@router.get("/projects/{project_id}/github/repos", response_model=ApiResponse[list[dict]])
+async def github_list_repos(
+    project_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List repos accessible by the stored OAuth token — call after connect redirect."""
+    await _require_project_access(project_id, user, db)
+    conn = await _require_connection(project_id, db)
+    gh = _get_client(conn)
+    repos = await gh.get("/user/repos", params={"sort": "updated", "per_page": 50})
+    return ok([{"full_name": r["full_name"], "private": r["private"], "html_url": r["html_url"]} for r in repos])
+
+
 # ── Connection status ─────────────────────────────────────────────────────────
 
 
