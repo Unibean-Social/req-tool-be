@@ -6,6 +6,7 @@ import uuid
 import urllib.parse
 import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -202,6 +203,24 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         refresh_token=create_refresh_token(str(user.id)),
     )
     return ok(tokens)
+
+
+class DevLoginRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/dev-login", response_model=ApiResponse[TokenResponse], include_in_schema=True)
+async def dev_login(body: DevLoginRequest, db: AsyncSession = Depends(get_db)):
+    if settings.app_env != "development":
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    result = await db.execute(select(User).where(User.email == body.email, User.is_active == True))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No active user found with that email")
+    return ok(TokenResponse(
+        access_token=create_access_token(str(user.id), user.role),
+        refresh_token=create_refresh_token(str(user.id)),
+    ))
 
 
 @router.delete("/unlink", status_code=status.HTTP_204_NO_CONTENT)

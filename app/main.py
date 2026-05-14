@@ -37,6 +37,9 @@ async def lifespan(app: FastAPI):
     import asyncio
     if settings.auto_migrate:
         await asyncio.get_event_loop().run_in_executor(None, _run_migrations)
+    if settings.app_env == "development":
+        from scripts.seed_dev_users import seed
+        await seed()
     yield
     await engine.dispose()
 
