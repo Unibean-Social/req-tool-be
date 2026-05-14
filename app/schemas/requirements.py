@@ -57,6 +57,7 @@ class EpicResponse(BaseModel):
     status: ItemStatus
     priority: Priority
     labels: Any
+    references: Any = None
     created_at: datetime
     updated_at: datetime
 
@@ -69,6 +70,7 @@ class FeatureCreateRequest(BaseModel):
     description: str | None = None
     priority: Priority = Priority.medium
     labels: list[str] = []
+    nfr_note: str | None = None
 
 
 class FeatureUpdateRequest(BaseModel):
@@ -77,6 +79,7 @@ class FeatureUpdateRequest(BaseModel):
     status: ItemStatus | None = None
     priority: Priority | None = None
     labels: list[str] | None = None
+    nfr_note: str | None = None
 
     @field_validator("status")
     @classmethod
@@ -98,6 +101,9 @@ class FeatureResponse(BaseModel):
     status: ItemStatus
     priority: Priority
     labels: Any
+    nfr_note: str | None = None
+    references: Any = None
+    warnings: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -171,6 +177,7 @@ class StoryResponse(BaseModel):
     status: ItemStatus
     priority: Priority
     labels: Any
+    references: Any = None
     acceptance_criteria: list[AcceptanceCriteriaResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -213,6 +220,7 @@ class TaskResponse(BaseModel):
     status: ItemStatus
     priority: Priority
     labels: Any
+    references: Any = None
     created_at: datetime
     updated_at: datetime
 

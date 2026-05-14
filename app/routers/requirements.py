@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -73,6 +74,23 @@ async def _bp12_check(project_id: uuid.UUID, title: str, db: AsyncSession) -> No
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"BP-12: Epic title contains actor name '{name}'",
             )
+
+
+def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> None:
+    """BP-07: append or remove child prefix from parent.references (one level up only)."""
+    refs = list(parent_obj.references or [])
+    if op == "add":
+        if child_prefix not in refs:
+            refs.append(child_prefix)
+    elif op == "remove":
+        refs = [r for r in refs if r != child_prefix]
+    parent_obj.references = refs
+
+
+def _nfr_warning(feature: Any) -> list[str]:
+    if not feature.nfr_note or not feature.nfr_note.strip():
+        return ["BP-10: No non-functional requirement note provided for this feature"]
+    return []
 
 
 # ── Auto-prefix helpers ───────────────────────────────────────────────────────
@@ -248,10 +266,16 @@ async def create_feature(
         description=body.description,
         priority=body.priority,
         labels=body.labels,
+        nfr_note=body.nfr_note,
     )
     db.add(feature)
     await db.flush()
-    return created(feature)
+    _update_parent_references(epic, feature.prefix, "add")
+    resp = FeatureResponse.model_validate(feature)
+    warnings = _nfr_warning(feature)
+    if warnings:
+        resp = resp.model_copy(update={"warnings": warnings})
+    return created(resp)
 
 
 @router.get("/epics/{epic_id}/features", response_model=ApiResponse[list[FeatureResponse]])
@@ -266,7 +290,13 @@ async def list_features(
     if not result.scalar_one_or_none():
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
     result = await db.execute(select(Feature).where(Feature.epic_id == epic_id).order_by(Feature.prefix))
-    return ok(result.scalars().all())
+    features = result.scalars().all()
+    resps = []
+    for f in features:
+        r = FeatureResponse.model_validate(f)
+        w = _nfr_warning(f)
+        resps.append(r.model_copy(update={"warnings": w}) if w else r)
+    return ok(resps)
 
 
 @router.get("/features/{feature_id}", response_model=ApiResponse[FeatureResponse])
@@ -285,7 +315,11 @@ async def get_feature(
     feature = result.scalar_one_or_none()
     if not feature:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
-    return ok(feature)
+    resp = FeatureResponse.model_validate(feature)
+    w = _nfr_warning(feature)
+    if w:
+        resp = resp.model_copy(update={"warnings": w})
+    return ok(resp)
 
 
 @router.patch("/features/{feature_id}", response_model=ApiResponse[FeatureResponse])
@@ -315,7 +349,13 @@ async def update_feature(
         feature.priority = body.priority
     if body.labels is not None:
         feature.labels = body.labels
-    return ok(feature)
+    if body.nfr_note is not None:
+        feature.nfr_note = body.nfr_note
+    resp = FeatureResponse.model_validate(feature)
+    warnings = _nfr_warning(feature)
+    if warnings:
+        resp = resp.model_copy(update={"warnings": warnings})
+    return ok(resp)
 
 
 @router.delete("/features/{feature_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -334,6 +374,9 @@ async def delete_feature(
     feature = result.scalar_one_or_none()
     if not feature:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
+    epic = await db.get(Epic, feature.epic_id)
+    if epic:
+        _update_parent_references(epic, feature.prefix, "remove")
     await db.delete(feature)
 
 
@@ -403,6 +446,8 @@ async def create_story(
     )
     db.add(story)
     await db.flush()
+    _update_parent_references(feature, story.prefix, "add")
+    await db.refresh(story, ["acceptance_criteria"])
     return created(story)
 
 
@@ -506,6 +551,9 @@ async def delete_story(
     story = result.scalar_one_or_none()
     if not story:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
+    feature = await db.get(Feature, story.feature_id)
+    if feature:
+        _update_parent_references(feature, story.prefix, "remove")
     await db.delete(story)
 
 
@@ -586,6 +634,7 @@ async def story_builder(
         db.add(criteria)
 
     await db.flush()
+    _update_parent_references(feature, story.prefix, "add")
     await db.refresh(story, ["acceptance_criteria"])
     return created(story)
 
@@ -622,6 +671,7 @@ async def create_task(
     )
     db.add(task)
     await db.flush()
+    _update_parent_references(story, task.prefix, "add")
     return created(task)
 
 
@@ -716,6 +766,9 @@ async def delete_task(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+    story = await db.get(Story, task.story_id)
+    if story:
+        _update_parent_references(story, task.prefix, "remove")
     await db.delete(task)
 
 

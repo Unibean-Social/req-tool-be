@@ -231,7 +231,33 @@ async def _push_one(
     item_type = row.item_type.value
     item_id = row.item_id
 
-    # Parent dependency check (Phase 5 label check happens here too — see Phase 5)
+    # Label validation — fail fast before parent check
+    labels = snapshot.get("github_labels") or []
+    missing_cats = [p for p in ("type:", "status:", "priority:") if not any(l.startswith(p) for l in labels)]
+    if missing_cats:
+        row.status = SyncQueueStatus.failed
+        msg = f"Missing label categories: {', '.join(missing_cats)}"
+        log = SyncLog(
+            project_id=row.project_id,
+            sync_queue_id=row.id,
+            item_type=row.item_type,
+            item_id=item_id,
+            operation=row.operation,
+            status=SyncLogStatus.failed,
+            error_code="LABEL_INCOMPLETE",
+            error_message=msg,
+        )
+        db.add(log)
+        return PushResultItem(
+            item_type=row.item_type,
+            item_id=item_id,
+            github_issue_number=None,
+            github_issue_url=None,
+            error_code="LABEL_INCOMPLETE",
+            error_message=msg,
+        )
+
+    # Parent dependency check
     p_type = (await _parent_type(item_type))
     if p_type:
         # Determine parent id by loading a minimal view of the item
@@ -239,7 +265,7 @@ async def _push_one(
         if parent_item is not None:
             gi = await db.execute(
                 select(GithubItem).where(
-                    GithubItem.item_type == p_type,
+                    GithubItem.item_type == ItemType(p_type),
                     GithubItem.item_id == parent_item,
                 )
             )
@@ -496,6 +522,31 @@ async def _push_repush(
     snapshot = row.body_snapshot
     item_type = row.item_type.value
     item_id = row.item_id
+
+    # Label validation — same enforcement as _push_one
+    labels = snapshot.get("github_labels") or []
+    missing_cats = [p for p in ("type:", "status:", "priority:") if not any(l.startswith(p) for l in labels)]
+    if missing_cats:
+        msg = f"Missing label categories: {', '.join(missing_cats)}"
+        log = SyncLog(
+            project_id=row.project_id,
+            sync_queue_id=None,
+            item_type=row.item_type,
+            item_id=item_id,
+            operation=row.operation,
+            status=SyncLogStatus.failed,
+            error_code="LABEL_INCOMPLETE",
+            error_message=msg,
+        )
+        db.add(log)
+        return PushResultItem(
+            item_type=row.item_type,
+            item_id=item_id,
+            github_issue_number=None,
+            github_issue_url=None,
+            error_code="LABEL_INCOMPLETE",
+            error_message=msg,
+        )
 
     try:
         if existing_gi:
