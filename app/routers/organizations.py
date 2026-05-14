@@ -1,7 +1,7 @@
 import re
 import secrets
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
 from app.database import get_db
@@ -13,7 +13,6 @@ from app.schemas.organization import (
     OrgCreateRequest,
     OrgMemberResponse,
     OrgResponse,
-    UserSearchResult,
 )
 from app.schemas.response import ApiResponse
 from app.deps import current_user
@@ -110,23 +109,6 @@ async def list_members(
     result = await db.execute(select(OrgMember).where(OrgMember.org_id == org_id))
     return ok(result.scalars().all())
 
-
-@router.get("/{org_id}/members/search", response_model=ApiResponse[list[UserSearchResult]])
-async def search_users(
-    org_id: uuid.UUID,
-    q: str = Query(min_length=1, max_length=255),
-    user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Search users by email or GitHub username to invite as members."""
-    await _require_owner(org_id, user, db)
-    pattern = f"%{q}%"
-    result = await db.execute(
-        select(User).where(
-            or_(User.email.ilike(pattern), User.github_login.ilike(pattern))
-        ).limit(20)
-    )
-    return ok(result.scalars().all())
 
 
 @router.post("/{org_id}/members", response_model=ApiResponse[OrgMemberResponse], status_code=status.HTTP_201_CREATED)
