@@ -12,6 +12,7 @@ from app.models.requirements import (
     Story,
     Task,
 )
+from app.models.sync import GithubItem, SyncLog, SyncQueue
 
 __all__ = [
     "Base",
@@ -27,4 +28,7 @@ __all__ = [
     "Task",
     "AcceptanceCriteria",
     "CloseReason",
+    "SyncQueue",
+    "GithubItem",
+    "SyncLog",
 ]

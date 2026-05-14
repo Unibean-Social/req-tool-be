@@ -60,6 +60,12 @@ class GithubClient:
             _raise_for_status(resp)
             return resp.json()
 
+    async def patch(self, path: str, json: dict) -> dict:
+        async with httpx.AsyncClient() as client:
+            resp = await client.patch(f"{_BASE}{path}", headers=self._headers, json=json, timeout=15)
+            _raise_for_status(resp)
+            return resp.json()
+
     async def graphql(self, query: str, variables: dict | None = None) -> dict:
         payload: dict = {"query": query}
         if variables:

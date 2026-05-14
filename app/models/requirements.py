@@ -72,6 +72,7 @@ class Epic(AuditMixin, Base):
     status: Mapped[ItemStatus] = mapped_column(_item_status, nullable=False, default=ItemStatus.draft)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     project: Mapped["Project"] = relationship(back_populates="epics")  # noqa: F821
     features: Mapped[list["Feature"]] = relationship(back_populates="epic", cascade="all, delete-orphan")
@@ -89,6 +90,8 @@ class Feature(AuditMixin, Base):
     status: Mapped[ItemStatus] = mapped_column(_item_status, nullable=False, default=ItemStatus.draft)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    nfr_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     epic: Mapped["Epic"] = relationship(back_populates="features")
     stories: Mapped[list["Story"]] = relationship(back_populates="feature", cascade="all, delete-orphan")
@@ -109,6 +112,7 @@ class Story(AuditMixin, Base):
     status: Mapped[ItemStatus] = mapped_column(_item_status, nullable=False, default=ItemStatus.draft)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     feature: Mapped["Feature"] = relationship(back_populates="stories")
     tasks: Mapped[list["Task"]] = relationship(back_populates="story", cascade="all, delete-orphan")
@@ -131,6 +135,7 @@ class Task(AuditMixin, Base):
     status: Mapped[ItemStatus] = mapped_column(_item_status, nullable=False, default=ItemStatus.draft)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     story: Mapped["Story"] = relationship(back_populates="tasks")
 
