@@ -2,7 +2,7 @@ import re
 import secrets
 import unicodedata
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
@@ -107,15 +107,29 @@ async def get_org(
 @router.get("/{org_id}/members", response_model=ApiResponse[list[OrgMemberResponse]])
 async def list_members(
     org_id: uuid.UUID,
+    q: str | None = Query(default=None, min_length=1, max_length=255),
+    role: str | None = Query(default=None, pattern="^(owner|member)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_member(org_id, user, db)
-    result = await db.execute(
+    stmt = (
         select(OrgMember)
         .where(OrgMember.org_id == org_id)
         .options(selectinload(OrgMember.user))
+        .join(User, User.id == OrgMember.user_id)
     )
+    if q:
+        pattern = f"%{q}%"
+        stmt = stmt.where(
+            or_(User.email.ilike(pattern), User.github_login.ilike(pattern), User.full_name.ilike(pattern))
+        )
+    if role:
+        stmt = stmt.where(OrgMember.role == role)
+    stmt = stmt.order_by(OrgMember.created_at.desc()).limit(limit).offset(offset)
+    result = await db.execute(stmt)
     return ok(result.scalars().all())
 
 
