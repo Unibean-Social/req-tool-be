@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/auth/github/callback"
+    github_repo_connect_redirect_uri: str = "http://localhost:8000/api/v1/github/connect/callback"
 
     # App
     app_env: str = "development"
