@@ -146,6 +146,7 @@ async def github_callback(
 
     github_id = str(gh_user["id"])
     github_login = gh_user.get("login")
+    github_avatar_url = gh_user.get("avatar_url")
     encrypted_token = encrypt_token(access_token)
 
     result = await db.execute(select(User).where(User.github_id == github_id))
@@ -158,12 +159,14 @@ async def github_callback(
     if user:
         user.github_id = github_id
         user.github_login = github_login
+        user.github_avatar_url = github_avatar_url
         user.github_access_token = encrypted_token
     else:
         user = User(
             email=verified_primary,
             github_id=github_id,
             github_login=github_login,
+            github_avatar_url=github_avatar_url,
             github_access_token=encrypted_token,
             full_name=gh_user.get("name"),
         )
@@ -189,5 +192,6 @@ async def github_unlink(user: User = Depends(current_user), db: AsyncSession = D
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Cannot unlink GitHub: no password set on account")
     user.github_id = None
     user.github_login = None
+    user.github_avatar_url = None
     user.github_access_token = None
     await db.flush()

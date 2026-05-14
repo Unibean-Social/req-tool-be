@@ -1,5 +1,6 @@
 import re
 import secrets
+import unicodedata
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,9 @@ router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["projects"])
 
 
 def _slugify(name: str) -> str:
-    slug = name.lower().strip()
+    slug = unicodedata.normalize("NFD", name)
+    slug = "".join(c for c in slug if unicodedata.category(c) != "Mn")
+    slug = slug.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = re.sub(r"-+", "-", slug)

@@ -18,6 +18,16 @@ class OrgResponse(BaseModel):
     created_at: datetime
 
 
+class MemberUserInfo(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    email: str
+    full_name: str | None
+    github_login: str | None
+    github_avatar_url: str | None
+
+
 class OrgMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -26,6 +36,7 @@ class OrgMemberResponse(BaseModel):
     user_id: uuid.UUID
     role: str
     created_at: datetime
+    user: MemberUserInfo | None = None
 
 
 class AddMemberRequest(BaseModel):

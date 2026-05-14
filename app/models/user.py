@@ -15,6 +15,7 @@ class User(AuditMixin, Base):
     # GitHub identity (linked via OAuth)
     github_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True, index=True)
     github_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    github_avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Stored Fernet-encrypted; use app.core.crypto to read/write
     github_access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 

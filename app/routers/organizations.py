@@ -1,9 +1,11 @@
 import re
 import secrets
+import unicodedata
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.organization import Organization, OrgMember
 from app.models.user import User
@@ -21,7 +23,10 @@ router = APIRouter(prefix="/orgs", tags=["organizations"])
 
 
 def _slugify(name: str) -> str:
-    slug = name.lower().strip()
+    # Normalize Unicode → decompose accents (NFD), then strip combining marks
+    slug = unicodedata.normalize("NFD", name)
+    slug = "".join(c for c in slug if unicodedata.category(c) != "Mn")
+    slug = slug.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = re.sub(r"-+", "-", slug)
@@ -106,7 +111,11 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_member(org_id, user, db)
-    result = await db.execute(select(OrgMember).where(OrgMember.org_id == org_id))
+    result = await db.execute(
+        select(OrgMember)
+        .where(OrgMember.org_id == org_id)
+        .options(selectinload(OrgMember.user))
+    )
     return ok(result.scalars().all())
 
 

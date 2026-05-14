@@ -12,6 +12,7 @@ class UserResponse(BaseModel):
     is_active: bool
     role: str
     github_login: str | None
+    github_avatar_url: str | None
     created_at: datetime
 
 
