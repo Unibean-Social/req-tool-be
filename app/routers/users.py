@@ -15,6 +15,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/search", response_model=ApiResponse[list[UserSearchResult]])
 async def search_users(
     q: str = Query(min_length=1, max_length=255),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     _user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -25,7 +27,7 @@ async def search_users(
     )
     if _user.role != "admin":
         q_stmt = q_stmt.where(User.role == "user")
-    result = await db.execute(q_stmt.limit(20))
+    result = await db.execute(q_stmt.order_by(User.full_name).limit(limit).offset(offset))
     return ok(result.scalars().all())
 
 
