@@ -20,11 +20,12 @@ async def search_users(
 ):
     """Search users by email or GitHub username — use to find members to invite."""
     pattern = f"%{q}%"
-    result = await db.execute(
-        select(User).where(
-            or_(User.email.ilike(pattern), User.github_login.ilike(pattern), User.full_name.ilike(pattern))
-        ).limit(20)
+    q_stmt = select(User).where(
+        or_(User.email.ilike(pattern), User.github_login.ilike(pattern), User.full_name.ilike(pattern))
     )
+    if _user.role != "admin":
+        q_stmt = q_stmt.where(User.role == "user")
+    result = await db.execute(q_stmt.limit(20))
     return ok(result.scalars().all())
 
 
