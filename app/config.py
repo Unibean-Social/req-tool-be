@@ -51,6 +51,8 @@ class Settings(BaseSettings):
                 raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in non-development environments")
             if not self.github_state_secret:
                 raise ValueError("GITHUB_STATE_SECRET must be set in non-development environments")
+            if not self.cors_origins:
+                raise ValueError("CORS_ORIGINS must be non-empty in non-development environments")
         return self
 
 

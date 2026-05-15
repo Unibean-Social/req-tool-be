@@ -1,47 +1,16 @@
-import re
-import secrets
-import unicodedata
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.database import get_db
-from app.models.project import Project
-from app.models.organization import OrgMember
+
+from fastapi import APIRouter, Depends, status
+
+from app.core.guards import require_org_member, require_org_owner
+from app.core.responses import created, ok
+from app.deps import current_user, get_project_service
 from app.models.user import User
-from app.core.responses import ok, created
-from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest, ProjectResponse
+from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
 from app.schemas.response import ApiResponse
-from app.deps import current_user
+from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["projects"])
-
-
-def _slugify(name: str) -> str:
-    slug = name.translate(str.maketrans("đĐ", "dD"))
-    slug = unicodedata.normalize("NFD", slug)
-    slug = "".join(c for c in slug if unicodedata.category(c) != "Mn")
-    slug = slug.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug)
-    return slug.strip("-")[:100] or "project"
-
-
-async def _require_org_member(org_id: uuid.UUID, user: User, db: AsyncSession) -> OrgMember:
-    result = await db.execute(
-        select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user.id)
-    )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not a member of this organization")
-    return member
-
-
-async def _require_org_owner(org_id: uuid.UUID, user: User, db: AsyncSession) -> None:
-    member = await _require_org_member(org_id, user, db)
-    if member.role != "owner":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Owner role required")
 
 
 @router.post("", response_model=ApiResponse[ProjectResponse], status_code=status.HTTP_201_CREATED)
@@ -49,44 +18,20 @@ async def create_project(
     org_id: uuid.UUID,
     body: ProjectCreateRequest,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProjectService = Depends(get_project_service),
 ):
-    await _require_org_member(org_id, user, db)
-
-    base = _slugify(body.name)
-    slug = base
-    while (await db.execute(
-        select(Project).where(Project.org_id == org_id, Project.slug == slug)
-    )).scalar_one_or_none():
-        slug = f"{base}-{secrets.token_hex(3)}"
-
-    project = Project(
-        org_id=org_id,
-        name=body.name,
-        slug=slug,
-        description=body.description,
-        context=body.context,
-        problems=body.problems,
-        stakeholders=body.stakeholders,
-        business_goals=body.business_goals,
-        business_flows=body.business_flows,
-        business_rules=body.business_rules,
-        proposed_solutions=body.proposed_solutions,
-    )
-    db.add(project)
-    await db.flush()
-    return created(project)
+    await require_org_member(org_id, user, service.db)
+    return created(await service.create(org_id, body))
 
 
 @router.get("", response_model=ApiResponse[list[ProjectResponse]])
 async def list_projects(
     org_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProjectService = Depends(get_project_service),
 ):
-    await _require_org_member(org_id, user, db)
-    result = await db.execute(select(Project).where(Project.org_id == org_id))
-    return ok(result.scalars().all())
+    await require_org_member(org_id, user, service.db)
+    return ok(await service.list(org_id))
 
 
 @router.get("/{project_id}", response_model=ApiResponse[ProjectResponse])
@@ -94,16 +39,10 @@ async def get_project(
     org_id: uuid.UUID,
     project_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProjectService = Depends(get_project_service),
 ):
-    await _require_org_member(org_id, user, db)
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-    return ok(project)
+    await require_org_member(org_id, user, service.db)
+    return ok(await service.get(org_id, project_id))
 
 
 @router.patch("/{project_id}", response_model=ApiResponse[ProjectResponse])
@@ -112,35 +51,10 @@ async def update_project(
     project_id: uuid.UUID,
     body: ProjectUpdateRequest,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProjectService = Depends(get_project_service),
 ):
-    await _require_org_member(org_id, user, db)
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-    if body.name is not None:
-        project.name = body.name
-    if body.description is not None:
-        project.description = body.description
-    if body.context is not None:
-        project.context = body.context
-    if body.problems is not None:
-        project.problems = body.problems
-    if body.stakeholders is not None:
-        project.stakeholders = body.stakeholders
-    if body.business_goals is not None:
-        project.business_goals = body.business_goals
-    if body.business_flows is not None:
-        project.business_flows = body.business_flows
-    if body.business_rules is not None:
-        project.business_rules = body.business_rules
-    if body.proposed_solutions is not None:
-        project.proposed_solutions = body.proposed_solutions
-    return ok(project)
+    await require_org_member(org_id, user, service.db)
+    return ok(await service.update(org_id, project_id, body))
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -148,13 +62,7 @@ async def delete_project(
     org_id: uuid.UUID,
     project_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProjectService = Depends(get_project_service),
 ):
-    await _require_org_owner(org_id, user, db)
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-    await db.delete(project)
+    await require_org_owner(org_id, user, service.db)
+    await service.delete(org_id, project_id)

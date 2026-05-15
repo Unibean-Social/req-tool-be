@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.responses import ok
 from app.database import get_db
 from app.deps import current_user
+from app.core.guards import require_project_access
 from app.models.actor import Actor
 from app.models.organization import OrgMember
 from app.models.project import Project
@@ -31,20 +32,6 @@ router = APIRouter(prefix="/projects/{project_id}", tags=["health"])
 _LABEL_PREFIXES = ("type:", "status:", "priority:")
 
 
-# ── Guards ─────────────────────────────────────────────────────────────────────
-
-
-async def _require_project_access(project_id: uuid.UUID, user: User, db: AsyncSession) -> Project:
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-    member = await db.execute(
-        select(OrgMember).where(OrgMember.org_id == project.org_id, OrgMember.user_id == user.id)
-    )
-    if not member.scalar_one_or_none():
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not a member of this project's organization")
-    return project
 
 
 # ── Label helpers ──────────────────────────────────────────────────────────────
@@ -67,7 +54,7 @@ async def get_health(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, user, db)
+    await require_project_access(project_id, user, db)
 
     r = await db.execute(
         select(
@@ -207,7 +194,7 @@ async def audit_item(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(project_id, user, db)
+    await require_project_access(project_id, user, db)
 
     # Load item
     if item_type == ItemType.epic:

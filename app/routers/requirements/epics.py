@@ -1,14 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from fastapi import APIRouter, Depends, status
 
+from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.database import get_db
-from app.deps import current_user
-from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType, Story, Task
+from app.deps import current_user, get_epic_service
 from app.models.user import User
 from app.schemas.requirements import (
     CloseRequest,
@@ -19,8 +15,7 @@ from app.schemas.requirements import (
     EpicUpdateRequest,
 )
 from app.schemas.response import ApiResponse
-
-from ._helpers import _bp12_check, _next_epic_prefix, _require_project_access
+from app.services.requirements.epic_service import EpicService
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["epics"])
 
@@ -30,33 +25,20 @@ async def create_epic(
     project_id: uuid.UUID,
     body: EpicCreateRequest,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    await _bp12_check(project_id, body.title, db)
-    prefix = await _next_epic_prefix(project_id, db)
-    epic = Epic(
-        project_id=project_id,
-        prefix=prefix,
-        title=body.title,
-        description=body.description,
-        priority=body.priority,
-        labels=body.labels,
-    )
-    db.add(epic)
-    await db.flush()
-    return created(epic)
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create(project_id, body, user))
 
 
 @router.get("/epics", response_model=ApiResponse[list[EpicResponse]])
 async def list_epics(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.project_id == project_id).order_by(Epic.prefix))
-    return ok(result.scalars().all())
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list(project_id))
 
 
 @router.get("/epics/{epic_id}", response_model=ApiResponse[EpicResponse])
@@ -64,14 +46,10 @@ async def get_epic(
     project_id: uuid.UUID,
     epic_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
-    epic = result.scalar_one_or_none()
-    if not epic:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
-    return ok(epic)
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.get(project_id, epic_id))
 
 
 @router.patch("/epics/{epic_id}", response_model=ApiResponse[EpicResponse])
@@ -80,25 +58,10 @@ async def update_epic(
     epic_id: uuid.UUID,
     body: EpicUpdateRequest,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
-    epic = result.scalar_one_or_none()
-    if not epic:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
-    if body.title is not None:
-        await _bp12_check(project_id, body.title, db)
-        epic.title = body.title
-    if body.description is not None:
-        epic.description = body.description
-    if body.status is not None:
-        epic.status = body.status
-    if body.priority is not None:
-        epic.priority = body.priority
-    if body.labels is not None:
-        epic.labels = body.labels
-    return ok(epic)
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update(project_id, epic_id, body))
 
 
 @router.delete("/epics/{epic_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -106,57 +69,29 @@ async def delete_epic(
     project_id: uuid.UUID,
     epic_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
-    epic = result.scalar_one_or_none()
-    if not epic:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
-    await db.delete(epic)
+    await require_project_access(project_id, user, service.db)
+    await service.delete(project_id, epic_id)
 
 
-@router.patch("/epics/{epic_id}/close", response_model=ApiResponse[CloseReasonResponse], status_code=status.HTTP_200_OK)
+@router.patch("/epics/{epic_id}/close", response_model=ApiResponse[CloseReasonResponse])
 async def close_epic(
     project_id: uuid.UUID,
     epic_id: uuid.UUID,
     body: CloseRequest,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
-    epic = result.scalar_one_or_none()
-    if not epic:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
-    if epic.status in TERMINAL_STATUSES:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="Epic is already closed")
-    epic.status = ItemStatus(body.reason.value)
-    close = CloseReason(
-        item_type=ItemType.epic,
-        item_id=epic.id,
-        reason=body.reason,
-        comment=body.comment,
-        closed_by=user.id,
-    )
-    db.add(close)
-    await db.flush()
-    return ok(close)
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.close(project_id, epic_id, body, user))
 
 
 @router.get("/requirements/tree", response_model=ApiResponse[list[EpicTree]])
 async def get_requirements_tree(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_db),
+    service: EpicService = Depends(get_epic_service),
 ):
-    await _require_project_access(project_id, user, db)
-    result = await db.execute(
-        select(Epic)
-        .where(Epic.project_id == project_id)
-        .options(
-            selectinload(Epic.features).selectinload(Feature.stories).selectinload(Story.tasks)
-        )
-        .order_by(Epic.prefix)
-    )
-    return ok(result.scalars().all())
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.get_tree(project_id))

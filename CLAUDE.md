@@ -74,14 +74,31 @@ User → OrgMember → Organization → Project → Actor
 
 All models inherit `AuditMixin` (`app/models/base.py`): UUID PK, `created_at`, `updated_at` (server-side UTC). `OrgMember` has `UniqueConstraint(org_id, user_id)`.
 
-### Authorization Pattern
+### Authorization Guards
 
-Routers define private `_require_*` async helpers that raise `HTTPException(403/404)`:
+Consolidated authorization checks in `app/core/guards.py`:
 ```python
-async def _require_member(org_id, user, db) -> Organization: ...
-async def _require_owner(org_id, user, db) -> Organization: ...
+require_org_member(org_id, user, db) -> OrgMember
+require_org_owner(org_id, user, db) -> OrgMember
+require_project_access(project_id, user, db) -> Project
+require_sprint(sprint_id, project_id, db) -> Sprint
 ```
-Call these at the top of each handler instead of repeating the same query+check logic.
+Call these at the top of each router handler to verify access before delegating to a service.
+
+### Service Layer
+
+Business logic lives in `app/services/` organized by domain:
+- `OrgService`, `ProjectService`, `SprintService`, `ActorService` — core domain services
+- `AuthService`, `GithubService`, `SyncService` — external integration and auth
+- `EpicService`, `FeatureService`, `StoryService`, `TaskService` — requirement-specific services under `app/services/requirements/`
+
+Each service is instantiated via a factory function in `app/deps.py` and injected into routers:
+```python
+def get_org_service(db: AsyncSession = Depends(get_db)) -> OrgService:
+    return OrgService(db)
+```
+
+Routers remain thin HTTP adapters: they validate input, call guards for authorization, invoke service methods, and return responses via `ok()` or `created()`.
 
 ### Config & Secrets
 
@@ -91,12 +108,13 @@ Call these at the top of each handler instead of repeating the same query+check 
 
 ### Adding a New Resource
 
-1. Model in `app/models/` inheriting `AuditMixin` + `Base`
-2. Import in `app/models/__init__.py` (required for Alembic autogenerate)
-3. Schemas in `app/schemas/` — `CreateRequest`, `UpdateRequest`, `Response` (with `from_attributes=True`)
-4. Router in `app/routers/` with `APIRouter(prefix=..., tags=[...])`
-5. Register in `app/main.py` under `api_v1`
-6. `task db:revision -- 'add <resource> table'`
+1. **Model**: Create in `app/models/` inheriting `AuditMixin` + `Base`; import in `app/models/__init__.py` (required for Alembic)
+2. **Migration**: `task db:revision -- 'add <resource> table'`
+3. **Schemas**: Create in `app/schemas/` — `CreateRequest`, `UpdateRequest`, `Response` (with `from_attributes=True`)
+4. **Service**: Create a service class in `app/services/` (or `app/services/requirements/` for requirement types) with methods for create, read, update, delete operations
+5. **Service Factory**: Add a factory function in `app/deps.py` (e.g., `def get_foo_service(db) -> FooService`)
+6. **Router**: Create thin HTTP adapter in `app/routers/` with `APIRouter(prefix=..., tags=[...])`; inject service via `Depends(get_foo_service)` and call service methods
+7. **Registration**: Register router in `app/main.py` under `api_v1`
 
 ### Testing
 

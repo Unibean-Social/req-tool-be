@@ -7,27 +7,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.actor import Actor
-from app.models.organization import OrgMember
 from app.models.project import Project
 from app.models.requirements import Epic, Feature, Story, Task
-from app.models.user import User
-
-
-async def _require_project_access(project_id: uuid.UUID, user: User, db: AsyncSession) -> Project:
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
-    member = await db.execute(
-        select(OrgMember).where(OrgMember.org_id == project.org_id, OrgMember.user_id == user.id)
-    )
-    if not member.scalar_one_or_none():
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not a member of this project's organization")
-    return project
 
 
 async def _bp12_check(project_id: uuid.UUID, title: str, db: AsyncSession) -> None:
-    """BP-12: Epic title must not contain a registered actor name (whole-word, case-insensitive)."""
     result = await db.execute(select(Actor.name).where(Actor.project_id == project_id))
     actor_names = result.scalars().all()
     for name in actor_names:
@@ -39,7 +23,6 @@ async def _bp12_check(project_id: uuid.UUID, title: str, db: AsyncSession) -> No
 
 
 def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> None:
-    """BP-07: append or remove child prefix from parent.references (one level up only)."""
     refs = list(parent_obj.references or [])
     if op == "add":
         if child_prefix not in refs:

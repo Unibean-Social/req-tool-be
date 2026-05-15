@@ -1,0 +1,85 @@
+import secrets
+import uuid
+
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.utils import slugify
+from app.models.project import Project
+from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
+
+
+class ProjectService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def _unique_slug(self, org_id: uuid.UUID, base: str) -> str:
+        slug = base
+        for _ in range(10):
+            if not (await self.db.execute(
+                select(Project).where(Project.org_id == org_id, Project.slug == slug)
+            )).scalar_one_or_none():
+                return slug
+            slug = f"{base}-{secrets.token_hex(3)}"
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate unique slug")
+
+    async def create(self, org_id: uuid.UUID, body: ProjectCreateRequest) -> Project:
+        slug = await self._unique_slug(org_id, slugify(body.name, fallback="project"))
+        project = Project(
+            org_id=org_id,
+            name=body.name,
+            slug=slug,
+            description=body.description,
+            context=body.context,
+            problems=body.problems,
+            stakeholders=body.stakeholders,
+            business_goals=body.business_goals,
+            business_flows=body.business_flows,
+            business_rules=body.business_rules,
+            proposed_solutions=body.proposed_solutions,
+        )
+        self.db.add(project)
+        await self.db.flush()
+        return project
+
+    async def list(self, org_id: uuid.UUID) -> list[Project]:
+        result = await self.db.execute(select(Project).where(Project.org_id == org_id))
+        return list(result.scalars().all())
+
+    async def get(self, org_id: uuid.UUID, project_id: uuid.UUID) -> Project:
+        result = await self.db.execute(
+            select(Project).where(Project.id == project_id, Project.org_id == org_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
+        return project
+
+    async def update(
+        self, org_id: uuid.UUID, project_id: uuid.UUID, body: ProjectUpdateRequest
+    ) -> Project:
+        project = await self.get(org_id, project_id)
+        if body.name is not None:
+            project.name = body.name
+        if body.description is not None:
+            project.description = body.description
+        if body.context is not None:
+            project.context = body.context
+        if body.problems is not None:
+            project.problems = body.problems
+        if body.stakeholders is not None:
+            project.stakeholders = body.stakeholders
+        if body.business_goals is not None:
+            project.business_goals = body.business_goals
+        if body.business_flows is not None:
+            project.business_flows = body.business_flows
+        if body.business_rules is not None:
+            project.business_rules = body.business_rules
+        if body.proposed_solutions is not None:
+            project.proposed_solutions = body.proposed_solutions
+        return project
+
+    async def delete(self, org_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        project = await self.get(org_id, project_id)
+        await self.db.delete(project)
