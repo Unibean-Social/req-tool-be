@@ -161,7 +161,7 @@ class StoryBuilderRequest(BaseModel):
     @classmethod
     def require_at_least_one_ac(cls, v: list) -> list:
         if not v:
-            raise ValueError("BP-03: at least one acceptance criteria is required")
+            raise ValueError("at least one acceptance criterion is required")
         return v
 
 class StoryResponse(BaseModel):

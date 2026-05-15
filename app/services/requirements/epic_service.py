@@ -17,7 +17,7 @@ from app.models.requirements import (
 )
 from app.models.user import User
 from app.schemas.requirements import CloseRequest, EpicCreateRequest, EpicUpdateRequest
-from app.services.requirements.helpers import _bp12_check, _next_epic_prefix
+from app.services.requirements.helpers import check_epic_title_excludes_actors, _next_epic_prefix
 
 
 class EpicService:
@@ -25,7 +25,7 @@ class EpicService:
         self.db = db
 
     async def create(self, project_id: uuid.UUID, body: EpicCreateRequest, user: User) -> Epic:
-        await _bp12_check(project_id, body.title, self.db)
+        await check_epic_title_excludes_actors(project_id, body.title, self.db)
         prefix = await _next_epic_prefix(project_id, self.db)
         epic = Epic(
             project_id=project_id,
@@ -57,7 +57,7 @@ class EpicService:
     async def update(self, project_id: uuid.UUID, epic_id: uuid.UUID, body: EpicUpdateRequest) -> Epic:
         epic = await self.get(project_id, epic_id)
         if body.title is not None:
-            await _bp12_check(project_id, body.title, self.db)
+            await check_epic_title_excludes_actors(project_id, body.title, self.db)
             epic.title = body.title
         if body.description is not None:
             epic.description = body.description

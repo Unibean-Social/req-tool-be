@@ -12,7 +12,7 @@ from app.schemas.requirements import (
     FeatureResponse,
     FeatureUpdateRequest,
 )
-from app.services.requirements.helpers import _nfr_warning, _next_feature_prefix, _update_parent_references
+from app.services.requirements.helpers import get_feature_nfr_warnings, _next_feature_prefix, _update_parent_references
 
 
 class FeatureService:
@@ -32,7 +32,7 @@ class FeatureService:
 
     def _to_response(self, feature: Feature) -> FeatureResponse:
         resp = FeatureResponse.model_validate(feature)
-        w = _nfr_warning(feature)
+        w = get_feature_nfr_warnings(feature)
         return resp.model_copy(update={"warnings": w}) if w else resp
 
     async def create(self, project_id: uuid.UUID, body: FeatureCreateRequest) -> FeatureResponse:

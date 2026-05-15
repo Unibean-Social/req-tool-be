@@ -230,7 +230,6 @@ async def audit_item(
 
     checks: list[dict] = []
 
-    # BP-05: closed item must have CloseReason
     if item.status in TERMINAL_STATUSES:
         cr = await db.execute(
             select(CloseReason).where(
@@ -240,18 +239,18 @@ async def audit_item(
         )
         has_reason = cr.scalar_one_or_none() is not None
         checks.append({
-            "rule": "BP-05",
+            "rule": "closed_item_has_close_reason",
             "pass": has_reason,
-            "detail": "Closed item has a CloseReason record" if has_reason else "Closed item missing CloseReason",
+            "detail": "Closed item has a close reason record" if has_reason else "Closed item is missing a close reason",
         })
     else:
-        checks.append({"rule": "BP-05", "pass": True, "detail": "Item is not closed"})
+        checks.append({"rule": "closed_item_has_close_reason", "pass": True, "detail": "Item is not closed"})
 
     # Label completeness
     labels = list(item.labels or [])
     missing_prefixes = [p for p in _LABEL_PREFIXES if not any(l.startswith(p) for l in labels)]
     checks.append({
-        "rule": "LABEL_COMPLETE",
+        "rule": "item_has_complete_labels",
         "pass": len(missing_prefixes) == 0,
         "detail": (
             "All label categories present"
@@ -260,7 +259,6 @@ async def audit_item(
         ),
     })
 
-    # Type-specific rules
     if item_type == ItemType.epic:
         actors_r = await db.execute(select(Actor.name).where(Actor.project_id == project_id))
         actor_names = actors_r.scalars().all()
@@ -269,9 +267,9 @@ async def audit_item(
             None,
         )
         checks.append({
-            "rule": "BP-12",
+            "rule": "epic_title_excludes_actor_names",
             "pass": violated is None,
-            "detail": "No actor name in title" if violated is None else f"Title contains actor name '{violated}'",
+            "detail": "Epic title contains no actor names" if violated is None else f"Epic title must not contain actor name '{violated}'",
         })
 
     elif item_type == ItemType.story:
@@ -279,17 +277,17 @@ async def audit_item(
             select(func.count(AcceptanceCriteria.id)).where(AcceptanceCriteria.story_id == item_id)
         ) or 0
         checks.append({
-            "rule": "BP-03",
+            "rule": "story_has_acceptance_criteria",
             "pass": ac_count > 0,
-            "detail": f"{ac_count} acceptance criteria" if ac_count > 0 else "No acceptance criteria (BP-03 requires ≥1)",
+            "detail": f"{ac_count} acceptance criteria defined" if ac_count > 0 else "Story must have at least one acceptance criterion",
         })
 
     elif item_type == ItemType.feature:
         has_nfr = bool(item.nfr_note and item.nfr_note.strip())
         checks.append({
-            "rule": "BP-10",
+            "rule": "feature_has_nfr_note",
             "pass": has_nfr,
-            "detail": "NFR note is present" if has_nfr else "Missing non-functional requirement note",
+            "detail": "Non-functional requirement note is present" if has_nfr else "Feature is missing a non-functional requirement note",
         })
 
     return ok(checks)

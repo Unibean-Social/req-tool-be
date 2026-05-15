@@ -11,14 +11,14 @@ from app.models.project import Project
 from app.models.requirements import Epic, Feature, Story, Task
 
 
-async def _bp12_check(project_id: uuid.UUID, title: str, db: AsyncSession) -> None:
+async def check_epic_title_excludes_actors(project_id: uuid.UUID, title: str, db: AsyncSession) -> None:
     result = await db.execute(select(Actor.name).where(Actor.project_id == project_id))
     actor_names = result.scalars().all()
     for name in actor_names:
         if re.search(r"\b" + re.escape(name) + r"\b", title, re.IGNORECASE):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"BP-12: Epic title contains actor name '{name}'",
+                detail=f"Epic title must not contain actor name '{name}'",
             )
 
 
@@ -32,9 +32,9 @@ def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> No
     parent_obj.references = refs
 
 
-def _nfr_warning(feature: Any) -> list[str]:
+def get_feature_nfr_warnings(feature: Any) -> list[str]:
     if not feature.nfr_note or not feature.nfr_note.strip():
-        return ["BP-10: No non-functional requirement note provided for this feature"]
+        return ["No non-functional requirement note provided for this feature"]
     return []
 
 
