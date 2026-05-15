@@ -1,8 +1,12 @@
 import uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, ForeignKey
+from typing import Any
+
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from app.models.base import Base, AuditMixin
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON
+
+from app.models.base import AuditMixin, Base
 
 
 class Project(AuditMixin, Base):
@@ -13,12 +17,12 @@ class Project(AuditMixin, Base):
     slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     context: Mapped[str | None] = mapped_column(Text, nullable=True)
-    problems: Mapped[str | None] = mapped_column(Text, nullable=True)
-    stakeholders: Mapped[str | None] = mapped_column(Text, nullable=True)
-    business_goals: Mapped[str | None] = mapped_column(Text, nullable=True)
-    business_flows: Mapped[str | None] = mapped_column(Text, nullable=True)
-    business_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
-    proposed_solutions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    problems: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    stakeholders: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    business_goals: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    business_flows: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    business_rules: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
+    proposed_solutions: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     # Relationships
     organization: Mapped["Organization"] = relationship(back_populates="projects")  # noqa: F821
