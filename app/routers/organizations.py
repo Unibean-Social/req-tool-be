@@ -4,10 +4,11 @@ import unicodedata
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.organization import Organization, OrgMember
+from app.models.project import Project
 from app.models.user import User
 from app.core.responses import ok, created
 from app.schemas.organization import (
@@ -15,6 +16,7 @@ from app.schemas.organization import (
     OrgCreateRequest,
     OrgMemberResponse,
     OrgResponse,
+    OrgStats,
     BulkAddMemberResponse,
 )
 from app.schemas.response import ApiResponse
@@ -62,6 +64,25 @@ async def _require_owner(org_id: uuid.UUID, user: User, db: AsyncSession) -> Org
     return member
 
 
+async def _fetch_stats(db: AsyncSession, org_ids: list) -> dict:
+    member_q = (
+        select(OrgMember.org_id, func.count().label("cnt"))
+        .where(OrgMember.org_id.in_(org_ids))
+        .group_by(OrgMember.org_id)
+    )
+    project_q = (
+        select(Project.org_id, func.count().label("cnt"))
+        .where(Project.org_id.in_(org_ids))
+        .group_by(Project.org_id)
+    )
+    members = {r.org_id: r.cnt for r in (await db.execute(member_q)).all()}
+    projects = {r.org_id: r.cnt for r in (await db.execute(project_q)).all()}
+    return {
+        oid: OrgStats(member_count=members.get(oid, 0), project_count=projects.get(oid, 0))
+        for oid in org_ids
+    }
+
+
 @router.get("/me", response_model=ApiResponse[list[OrgResponse]])
 async def list_my_orgs(
     user: User = Depends(current_user),
@@ -72,7 +93,9 @@ async def list_my_orgs(
         .join(OrgMember, OrgMember.org_id == Organization.id)
         .where(OrgMember.user_id == user.id)
     )
-    return ok(result.scalars().all())
+    orgs = result.scalars().all()
+    stats = await _fetch_stats(db, [o.id for o in orgs])
+    return ok([OrgResponse.model_validate(o).model_copy(update={"stats": stats[o.id]}) for o in orgs])
 
 
 @router.post("", response_model=ApiResponse[OrgResponse], status_code=status.HTTP_201_CREATED)
@@ -102,7 +125,8 @@ async def get_org(
     org = result.scalar_one_or_none()
     if not org:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    return ok(org)
+    stats = await _fetch_stats(db, [org.id])
+    return ok(OrgResponse.model_validate(org).model_copy(update={"stats": stats[org.id]}))
 
 
 @router.get("/{org_id}/members", response_model=ApiResponse[list[OrgMemberResponse]])

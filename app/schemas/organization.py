@@ -8,6 +8,11 @@ class OrgCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class OrgStats(BaseModel):
+    member_count: int
+    project_count: int
+
+
 class OrgResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -16,6 +21,7 @@ class OrgResponse(BaseModel):
     slug: str
     owner_id: uuid.UUID
     created_at: datetime
+    stats: OrgStats | None = None
 
 
 class MemberUserInfo(BaseModel):
