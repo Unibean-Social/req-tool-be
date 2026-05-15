@@ -6,11 +6,25 @@ from pydantic import BaseModel, Field
 class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    context: str | None = None
+    problems: str | None = None
+    stakeholders: str | None = None
+    business_goals: str | None = None
+    business_flows: str | None = None
+    business_rules: str | None = None
+    proposed_solutions: str | None = None
 
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
+    context: str | None = None
+    problems: str | None = None
+    stakeholders: str | None = None
+    business_goals: str | None = None
+    business_flows: str | None = None
+    business_rules: str | None = None
+    proposed_solutions: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -21,4 +35,11 @@ class ProjectResponse(BaseModel):
     name: str
     slug: str
     description: str | None
+    context: str | None = None
+    problems: str | None = None
+    stakeholders: str | None = None
+    business_goals: str | None = None
+    business_flows: str | None = None
+    business_rules: str | None = None
+    proposed_solutions: str | None = None
     created_at: datetime

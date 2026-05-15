@@ -70,6 +70,7 @@ class EpicResponse(BaseModel):
 
 
 class FeatureCreateRequest(BaseModel):
+    epic_id: uuid.UUID
     title: str
     description: str | None = None
     priority: Priority = Priority.medium
@@ -116,6 +117,7 @@ class FeatureResponse(BaseModel):
 
 
 class StoryCreateRequest(BaseModel):
+    feature_id: uuid.UUID
     title: str
     description: str | None = None
     actor_ref: str | None = None
@@ -188,6 +190,7 @@ class StoryResponse(BaseModel):
 
 
 class TaskCreateRequest(BaseModel):
+    story_id: uuid.UUID
     title: str
     description: str | None = None
     priority: Priority = Priority.medium

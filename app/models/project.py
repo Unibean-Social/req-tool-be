@@ -12,6 +12,13 @@ class Project(AuditMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    problems: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stakeholders: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_goals: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_flows: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposed_solutions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     organization: Mapped["Organization"] = relationship(back_populates="projects")  # noqa: F821

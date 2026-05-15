@@ -2,7 +2,7 @@ import re
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -245,16 +245,15 @@ async def close_epic(
 # ── Feature CRUD ──────────────────────────────────────────────────────────────
 
 
-@router.post("/epics/{epic_id}/features", response_model=ApiResponse[FeatureResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/features", response_model=ApiResponse[FeatureResponse], status_code=status.HTTP_201_CREATED)
 async def create_feature(
     project_id: uuid.UUID,
-    epic_id: uuid.UUID,
     body: FeatureCreateRequest,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
+    result = await db.execute(select(Epic).where(Epic.id == body.epic_id, Epic.project_id == project_id))
     epic = result.scalar_one_or_none()
     if not epic:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
@@ -278,19 +277,28 @@ async def create_feature(
     return created(resp)
 
 
-@router.get("/epics/{epic_id}/features", response_model=ApiResponse[list[FeatureResponse]])
+@router.get("/features", response_model=ApiResponse[list[FeatureResponse]])
 async def list_features(
     project_id: uuid.UUID,
-    epic_id: uuid.UUID,
+    epic_id: uuid.UUID | None = Query(None),
+    item_status: ItemStatus | None = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(project_id, user, db)
-    result = await db.execute(select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
-    result = await db.execute(select(Feature).where(Feature.epic_id == epic_id).order_by(Feature.prefix))
-    features = result.scalars().all()
+    stmt = (
+        select(Feature)
+        .join(Epic, Feature.epic_id == Epic.id)
+        .where(Epic.project_id == project_id)
+    )
+    if epic_id:
+        stmt = stmt.where(Feature.epic_id == epic_id)
+    if item_status:
+        stmt = stmt.where(Feature.status == item_status)
+    stmt = stmt.order_by(Feature.prefix).limit(limit).offset(offset)
+    features = (await db.execute(stmt)).scalars().all()
     resps = []
     for f in features:
         r = FeatureResponse.model_validate(f)
@@ -415,10 +423,9 @@ async def close_feature(
 # ── Story CRUD ────────────────────────────────────────────────────────────────
 
 
-@router.post("/features/{feature_id}/stories", response_model=ApiResponse[StoryResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/stories", response_model=ApiResponse[StoryResponse], status_code=status.HTTP_201_CREATED)
 async def create_story(
     project_id: uuid.UUID,
-    feature_id: uuid.UUID,
     body: StoryCreateRequest,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
@@ -427,7 +434,7 @@ async def create_story(
     result = await db.execute(
         select(Feature)
         .join(Epic, Feature.epic_id == Epic.id)
-        .where(Feature.id == feature_id, Epic.project_id == project_id)
+        .where(Feature.id == body.feature_id, Epic.project_id == project_id)
     )
     feature = result.scalar_one_or_none()
     if not feature:
@@ -457,28 +464,30 @@ async def create_story(
     return created(story)
 
 
-@router.get("/features/{feature_id}/stories", response_model=ApiResponse[list[StoryResponse]])
+@router.get("/stories", response_model=ApiResponse[list[StoryResponse]])
 async def list_stories(
     project_id: uuid.UUID,
-    feature_id: uuid.UUID,
+    feature_id: uuid.UUID | None = Query(None),
+    item_status: ItemStatus | None = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(project_id, user, db)
-    result = await db.execute(
-        select(Feature)
-        .join(Epic, Feature.epic_id == Epic.id)
-        .where(Feature.id == feature_id, Epic.project_id == project_id)
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
-    result = await db.execute(
+    stmt = (
         select(Story)
-        .where(Story.feature_id == feature_id)
+        .join(Feature, Story.feature_id == Feature.id)
+        .join(Epic, Feature.epic_id == Epic.id)
+        .where(Epic.project_id == project_id)
         .options(selectinload(Story.acceptance_criteria))
-        .order_by(Story.prefix)
     )
-    return ok(result.scalars().all())
+    if feature_id:
+        stmt = stmt.where(Story.feature_id == feature_id)
+    if item_status:
+        stmt = stmt.where(Story.status == item_status)
+    stmt = stmt.order_by(Story.prefix).limit(limit).offset(offset)
+    return ok((await db.execute(stmt)).scalars().all())
 
 
 @router.get("/stories/{story_id}", response_model=ApiResponse[StoryResponse])
@@ -655,10 +664,9 @@ async def story_builder(
 # ── Task CRUD ─────────────────────────────────────────────────────────────────
 
 
-@router.post("/stories/{story_id}/tasks", response_model=ApiResponse[TaskResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/tasks", response_model=ApiResponse[TaskResponse], status_code=status.HTTP_201_CREATED)
 async def create_task(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
     body: TaskCreateRequest,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
@@ -668,7 +676,7 @@ async def create_task(
         select(Story)
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
-        .where(Story.id == story_id, Epic.project_id == project_id)
+        .where(Story.id == body.story_id, Epic.project_id == project_id)
     )
     story = result.scalar_one_or_none()
     if not story:
@@ -691,24 +699,30 @@ async def create_task(
     return created(task)
 
 
-@router.get("/stories/{story_id}/tasks", response_model=ApiResponse[list[TaskResponse]])
+@router.get("/tasks", response_model=ApiResponse[list[TaskResponse]])
 async def list_tasks(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
+    story_id: uuid.UUID | None = Query(None),
+    item_status: ItemStatus | None = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(project_id, user, db)
-    result = await db.execute(
-        select(Story)
+    stmt = (
+        select(Task)
+        .join(Story, Task.story_id == Story.id)
         .join(Feature, Story.feature_id == Feature.id)
         .join(Epic, Feature.epic_id == Epic.id)
-        .where(Story.id == story_id, Epic.project_id == project_id)
+        .where(Epic.project_id == project_id)
     )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
-    result = await db.execute(select(Task).where(Task.story_id == story_id).order_by(Task.prefix))
-    return ok(result.scalars().all())
+    if story_id:
+        stmt = stmt.where(Task.story_id == story_id)
+    if item_status:
+        stmt = stmt.where(Task.status == item_status)
+    stmt = stmt.order_by(Task.prefix).limit(limit).offset(offset)
+    return ok((await db.execute(stmt)).scalars().all())
 
 
 @router.get("/tasks/{task_id}", response_model=ApiResponse[TaskResponse])

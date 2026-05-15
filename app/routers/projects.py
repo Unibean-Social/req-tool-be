@@ -60,7 +60,19 @@ async def create_project(
     )).scalar_one_or_none():
         slug = f"{base}-{secrets.token_hex(3)}"
 
-    project = Project(org_id=org_id, name=body.name, slug=slug, description=body.description)
+    project = Project(
+        org_id=org_id,
+        name=body.name,
+        slug=slug,
+        description=body.description,
+        context=body.context,
+        problems=body.problems,
+        stakeholders=body.stakeholders,
+        business_goals=body.business_goals,
+        business_flows=body.business_flows,
+        business_rules=body.business_rules,
+        proposed_solutions=body.proposed_solutions,
+    )
     db.add(project)
     await db.flush()
     return created(project)
@@ -114,6 +126,20 @@ async def update_project(
         project.name = body.name
     if body.description is not None:
         project.description = body.description
+    if body.context is not None:
+        project.context = body.context
+    if body.problems is not None:
+        project.problems = body.problems
+    if body.stakeholders is not None:
+        project.stakeholders = body.stakeholders
+    if body.business_goals is not None:
+        project.business_goals = body.business_goals
+    if body.business_flows is not None:
+        project.business_flows = body.business_flows
+    if body.business_rules is not None:
+        project.business_rules = body.business_rules
+    if body.proposed_solutions is not None:
+        project.proposed_solutions = body.proposed_solutions
     return ok(project)
 
 
