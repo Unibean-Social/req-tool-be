@@ -323,3 +323,7 @@ class CanvasLayoutNode(BaseModel):
 
 class CanvasLayoutRequest(BaseModel):
     nodes: list[CanvasLayoutNode] = []
+
+
+class CanvasLayoutResponse(BaseModel):
+    nodes: list[CanvasLayoutNode] = []

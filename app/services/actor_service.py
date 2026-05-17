@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.actor import Actor
 from app.schemas.actor import ActorCreateRequest, ActorUpdateRequest
+from app.schemas.requirements import CanvasLayoutRequest, CanvasLayoutResponse
 
 
 class ActorService:
@@ -60,3 +61,16 @@ class ActorService:
         if not actor:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
         await self.db.delete(actor)
+
+    async def get_canvas_layout(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> CanvasLayoutResponse:
+        actor = await self.get(project_id, actor_id)
+        raw = actor.canvas_layout or {}
+        return CanvasLayoutResponse(nodes=raw.get("nodes", []))
+
+    async def put_canvas_layout(
+        self, project_id: uuid.UUID, actor_id: uuid.UUID, body: CanvasLayoutRequest
+    ) -> CanvasLayoutResponse:
+        actor = await self.get(project_id, actor_id)
+        actor.canvas_layout = body.model_dump()
+        await self.db.flush()
+        return CanvasLayoutResponse(nodes=body.nodes)
