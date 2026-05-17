@@ -36,7 +36,7 @@ class StoryService:
         )
         story = result.scalar_one_or_none()
         if not story:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy story")
         return story
 
     async def create(self, project_id: uuid.UUID, feature_id: uuid.UUID, body: StoryCreateRequest) -> Story:
@@ -47,7 +47,7 @@ class StoryService:
         )
         feature = result.scalar_one_or_none()
         if not feature:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy feature")
         prefix = await _next_story_prefix(feature, self.db)
         story = Story(
             feature_id=feature.id,
@@ -130,7 +130,7 @@ class StoryService:
     ) -> CloseReason:
         story = await self._get_story(project_id, story_id)
         if story.status in TERMINAL_STATUSES:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="Story is already closed")
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Story đã được đóng")
         story.status = ItemStatus(body.reason.value)
         close = CloseReason(
             item_type=ItemType.story,
@@ -151,7 +151,7 @@ class StoryService:
         )
         feature = result.scalar_one_or_none()
         if not feature:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy feature")
         title = f"As {body.actor_ref}, I want {body.action_text}, so that {body.goal_text}"
         prefix = await _next_story_prefix(feature, self.db)
         story = Story(

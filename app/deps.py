@@ -27,23 +27,23 @@ async def current_user(
     token = credentials.credentials
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ hoặc đã hết hạn")
 
     user_id = payload.get("sub")
     try:
         uid = uuid.UUID(user_id)
     except (TypeError, ValueError):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Subject của token không hợp lệ")
     result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy người dùng hoặc tài khoản đã bị vô hiệu hóa")
     return user
 
 
 async def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin role required")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Yêu cầu quyền admin")
     return user
 
 

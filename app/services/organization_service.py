@@ -31,7 +31,7 @@ class OrgService:
             )).scalar_one_or_none():
                 return slug
             slug = f"{base}-{secrets.token_hex(3)}"
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate unique slug")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Không thể tạo slug duy nhất")
 
     async def _fetch_stats(self, org_ids: list) -> dict:
         member_q = (
@@ -75,7 +75,7 @@ class OrgService:
         result = await self.db.execute(select(Organization).where(Organization.id == org_id))
         org = result.scalar_one_or_none()
         if not org:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Organization not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tổ chức")
         stats = await self._fetch_stats([org.id])
         return OrgResponse.model_validate(org).model_copy(update={"stats": stats[org.id]})
 
@@ -140,7 +140,7 @@ class OrgService:
         )
         member = result.scalar_one_or_none()
         if not member:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Member not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy thành viên")
         if member.role == "owner":
             owners = await self.db.execute(
                 select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.role == "owner")
@@ -148,6 +148,6 @@ class OrgService:
             if len(owners.scalars().all()) <= 1:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot remove the last owner of an organization",
+                    detail="Không thể xóa owner duy nhất của tổ chức",
                 )
         await self.db.delete(member)

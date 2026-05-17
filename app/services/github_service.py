@@ -64,17 +64,17 @@ class GithubService:
                     timeout=10,
                 )
             except httpx.RequestError:
-                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="GitHub unreachable")
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
 
         if resp.status_code == 404:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="GitHub App installation not found — please reinstall the app",
+                detail="Không tìm thấy cài đặt GitHub App — vui lòng cài đặt lại ứng dụng",
             )
         if not resp.is_success:
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY,
-                detail=f"GitHub installation token request failed: {resp.status_code}",
+                detail=f"Yêu cầu installation token GitHub thất bại: {resp.status_code}",
             )
         return resp.json()["token"]
 
@@ -92,7 +92,7 @@ class GithubService:
         if not conn or not conn.installation_id:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                detail="No GitHub App connection — install the GitHub App first",
+                detail="Chưa kết nối GitHub App — vui lòng cài đặt GitHub App trước",
             )
         return conn
 
@@ -123,63 +123,13 @@ class GithubService:
         )
         return result.scalar_one()
 
-    # DEPRECATED — OAuth-based repo connect. Kept until Phase 4 confirms no rollback needed.
-    async def _legacy_complete_oauth_connect(self, code: str, project_id: uuid.UUID) -> None:
-        from app.core.crypto import decrypt_token, encrypt_token
-
-        _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-        async with httpx.AsyncClient() as client:
-            try:
-                token_resp = await client.post(
-                    _GITHUB_TOKEN_URL,
-                    data={
-                        "client_id": settings.github_client_id,
-                        "client_secret": settings.github_client_secret,
-                        "code": code,
-                        "redirect_uri": settings.github_app_redirect_uri,
-                    },
-                    headers={"Accept": "application/json"},
-                    timeout=10,
-                )
-                token_resp.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    detail=f"GitHub token exchange failed: {exc.response.status_code}",
-                )
-            except httpx.RequestError:
-                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="GitHub unreachable")
-
-        access_token = token_resp.json().get("access_token")
-        if not access_token:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="GitHub did not return an access token")
-
-        encrypted = encrypt_token(access_token)
-        result = await self.db.execute(
-            select(GithubConnection).where(GithubConnection.project_id == project_id)
-        )
-        conn = result.scalar_one_or_none()
-        if conn:
-            conn.access_token = encrypted
-            conn.bootstrap_status = "not_started"
-        else:
-            conn = GithubConnection(
-                project_id=project_id,
-                repo_owner="",
-                repo_name="",
-                access_token=encrypted,
-                bootstrap_status="not_started",
-            )
-            self.db.add(conn)
-        await self.db.flush()
-
     async def select_repo(self, project_id: uuid.UUID, body: GithubSelectRepoRequest) -> GithubConnection:
         conn = await self._require_connection(project_id)
         gh = await self._get_client(conn.installation_id)
         try:
             await gh.get(f"/repos/{body.repo_owner}/{body.repo_name}")
         except HTTPException as exc:
-            raise HTTPException(exc.status_code, detail=f"Cannot access repo: {exc.detail}")
+            raise HTTPException(exc.status_code, detail=f"Không thể truy cập repo: {exc.detail}")
         conn.repo_owner = body.repo_owner
         conn.repo_name = body.repo_name
         await self.db.flush()
@@ -333,7 +283,7 @@ class GithubService:
                 if not isinstance(parent, Epic):
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"Issue #{mapping.github_issue_number}: parent issue #{parent_num} is not an epic",
+                        detail=f"Issue #{mapping.github_issue_number}: issue cha #{parent_num} không phải là epic",
                     )
                 await self.db.execute(
                     select(Epic).where(Epic.id == parent.id).with_for_update()
@@ -348,7 +298,7 @@ class GithubService:
                 if not isinstance(parent, Feature):
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"Issue #{mapping.github_issue_number}: parent issue #{parent_num} is not a feature",
+                        detail=f"Issue #{mapping.github_issue_number}: issue cha #{parent_num} không phải là feature",
                     )
                 await self.db.execute(
                     select(Feature).where(Feature.id == parent.id).with_for_update()
@@ -363,7 +313,7 @@ class GithubService:
                 if not isinstance(parent, Story):
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"Issue #{mapping.github_issue_number}: parent issue #{parent_num} is not a story",
+                        detail=f"Issue #{mapping.github_issue_number}: issue cha #{parent_num} không phải là story",
                     )
                 await self.db.execute(
                     select(Story).where(Story.id == parent.id).with_for_update()

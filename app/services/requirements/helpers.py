@@ -18,7 +18,7 @@ async def check_epic_title_excludes_actors(project_id: uuid.UUID, title: str, db
         if re.search(r"\b" + re.escape(name) + r"\b", title, re.IGNORECASE):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Epic title must not contain actor name '{name}'",
+                detail=f"Tiêu đề epic không được chứa tên actor '{name}'",
             )
 
 
@@ -34,7 +34,7 @@ def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> No
 
 def get_feature_nfr_warnings(feature: Any) -> list[str]:
     if not feature.nfr_note or not feature.nfr_note.strip():
-        return ["No non-functional requirement note provided for this feature"]
+        return ["Feature này chưa có ghi chú về yêu cầu phi chức năng"]
     return []
 
 

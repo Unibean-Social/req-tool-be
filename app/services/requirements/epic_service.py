@@ -59,7 +59,7 @@ class EpicService:
         )
         epic = result.scalar_one_or_none()
         if not epic:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
         return epic
 
     async def update(self, project_id: uuid.UUID, epic_id: uuid.UUID, body: EpicUpdateRequest) -> Epic:
@@ -86,7 +86,7 @@ class EpicService:
     ) -> CloseReason:
         epic = await self.get(project_id, epic_id)
         if epic.status in TERMINAL_STATUSES:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="Epic is already closed")
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Epic đã được đóng")
         epic.status = ItemStatus(body.reason.value)
         close = CloseReason(
             item_type=ItemType.epic,
@@ -118,7 +118,7 @@ class EpicService:
         )
         actor = actor_result.scalar_one_or_none()
         if not actor:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy actor")
 
         epic_result = await self.db.execute(
             select(Epic)

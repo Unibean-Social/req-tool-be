@@ -47,7 +47,7 @@ class EpicUpdateRequest(BaseModel):
     def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
         from app.models.requirements import TERMINAL_STATUSES
         if v in TERMINAL_STATUSES:
-            raise ValueError("Use the /close endpoint to set a terminal status")
+            raise ValueError("Sử dụng endpoint /close để đặt trạng thái kết thúc")
         return v
 
 
@@ -92,7 +92,7 @@ class FeatureUpdateRequest(BaseModel):
     def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
         from app.models.requirements import TERMINAL_STATUSES
         if v in TERMINAL_STATUSES:
-            raise ValueError("Use the /close endpoint to set a terminal status")
+            raise ValueError("Sử dụng endpoint /close để đặt trạng thái kết thúc")
         return v
 
 
@@ -144,7 +144,7 @@ class StoryUpdateRequest(BaseModel):
     def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
         from app.models.requirements import TERMINAL_STATUSES
         if v in TERMINAL_STATUSES:
-            raise ValueError("Use the /close endpoint to set a terminal status")
+            raise ValueError("Sử dụng endpoint /close để đặt trạng thái kết thúc")
         return v
 
 
@@ -161,7 +161,7 @@ class StoryBuilderRequest(BaseModel):
     @classmethod
     def require_at_least_one_ac(cls, v: list) -> list:
         if not v:
-            raise ValueError("at least one acceptance criterion is required")
+            raise ValueError("Phải có ít nhất một tiêu chí chấp nhận")
         return v
 
 class StoryResponse(BaseModel):
@@ -214,7 +214,7 @@ class TaskUpdateRequest(BaseModel):
     def no_direct_terminal(cls, v: ItemStatus | None) -> ItemStatus | None:
         from app.models.requirements import TERMINAL_STATUSES
         if v in TERMINAL_STATUSES:
-            raise ValueError("Use the /close endpoint to set a terminal status")
+            raise ValueError("Sử dụng endpoint /close để đặt trạng thái kết thúc")
         return v
 
 
@@ -248,7 +248,7 @@ class CloseRequest(BaseModel):
     @classmethod
     def comment_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("comment must not be empty")
+            raise ValueError("Nhận xét không được để trống")
         return v
 
 

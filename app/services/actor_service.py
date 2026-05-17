@@ -31,7 +31,7 @@ class ActorService:
         )
         actor = result.scalar_one_or_none()
         if not actor:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy actor")
         return actor
 
     async def list(self, project_id: uuid.UUID) -> list[Actor]:
@@ -46,7 +46,7 @@ class ActorService:
         )
         actor = result.scalar_one_or_none()
         if not actor:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy actor")
         if body.name is not None:
             actor.name = body.name
         if body.role_description is not None:
@@ -59,7 +59,7 @@ class ActorService:
         )
         actor = result.scalar_one_or_none()
         if not actor:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy actor")
         await self.db.delete(actor)
 
     async def get_canvas_layout(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> CanvasLayoutResponse:

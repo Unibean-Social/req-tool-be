@@ -36,8 +36,6 @@ REQFLOW_LABELS = [
 ]
 
 SPRINT_MILESTONE_TITLE = "Sprint 1"
-BOARD_TITLE = "ReqFlow Sprint Board"
-BOARD_COLUMNS = ["Backlog", "Todo", "In Progress", "In Review", "Done"]
 
 
 class GithubClient:
@@ -82,20 +80,20 @@ class GithubClient:
             if errors := data.get("errors"):
                 raise HTTPException(
                     status.HTTP_502_BAD_GATEWAY,
-                    detail=f"GitHub GraphQL error: {errors[0]['message']}",
+                    detail=f"Lỗi GitHub GraphQL: {errors[0]['message']}",
                 )
             return data["data"]
 
 
 def _raise_for_status(resp: httpx.Response) -> None:
     if resp.status_code == 401:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="GitHub token invalid or expired")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token GitHub không hợp lệ hoặc đã hết hạn")
     if resp.status_code == 403:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="GitHub token lacks required permissions")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Token GitHub không có đủ quyền cần thiết")
     if resp.status_code == 404:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="GitHub resource not found — check repo owner/name")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài nguyên GitHub — kiểm tra lại tên owner/repo")
     if not resp.is_success:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            detail=f"GitHub API error {resp.status_code}: {resp.text[:200]}",
+            detail=f"Lỗi GitHub API {resp.status_code}: {resp.text[:200]}",
         )

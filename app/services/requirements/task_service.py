@@ -35,7 +35,7 @@ class TaskService:
         )
         task = result.scalar_one_or_none()
         if not task:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy task")
         return task
 
     async def create(self, project_id: uuid.UUID, body: TaskCreateRequest) -> Task:
@@ -47,7 +47,7 @@ class TaskService:
         )
         story = result.scalar_one_or_none()
         if not story:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy story")
         prefix = await _next_task_prefix(story, self.db)
         task = Task(
             story_id=story.id,
@@ -122,7 +122,7 @@ class TaskService:
         )
         task = result.scalar_one_or_none()
         if not task:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy task")
         story = await self.db.get(Story, task.story_id)
         if story:
             _update_parent_references(story, task.prefix, "remove")
@@ -133,7 +133,7 @@ class TaskService:
     ) -> CloseReason:
         task = await self._get_task(project_id, task_id)
         if task.status in TERMINAL_STATUSES:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="Task is already closed")
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Task đã được đóng")
         task.status = ItemStatus(body.reason.value)
         close = CloseReason(
             item_type=ItemType.task,

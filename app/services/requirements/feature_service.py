@@ -29,7 +29,7 @@ class FeatureService:
         )
         feature = result.scalar_one_or_none()
         if not feature:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Feature not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy feature")
         return feature
 
     def _to_response(self, feature: Feature) -> FeatureResponse:
@@ -45,7 +45,7 @@ class FeatureService:
         )
         epic = result.scalar_one_or_none()
         if not epic:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Epic not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
         prefix = await _next_feature_prefix(epic, self.db)
         feature = Feature(
             epic_id=epic.id,
@@ -115,7 +115,7 @@ class FeatureService:
     ) -> CloseReason:
         feature = await self._get_feature(project_id, feature_id)
         if feature.status in TERMINAL_STATUSES:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="Feature is already closed")
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="Feature đã được đóng")
         feature.status = ItemStatus(body.reason.value)
         close = CloseReason(
             item_type=ItemType.feature,

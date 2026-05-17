@@ -98,26 +98,26 @@ async def github_connect_callback(
     gh_connect_nonce: str | None = Cookie(default=None, alias=_CONNECT_COOKIE),
 ):
     if not gh_connect_nonce:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Missing connect nonce cookie")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Thiếu cookie xác thực kết nối")
     ids = _verify_connect_state(state, gh_connect_nonce)
     if not ids:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid state — possible CSRF")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="State không hợp lệ — có thể là tấn công CSRF")
 
     project_id, user_id = ids
     _secure = settings.app_env != "development"
     response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
 
     if setup_action not in ("install", "update"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unexpected setup_action: {setup_action}")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"setup_action không hợp lệ: {setup_action}")
 
     user_result = await service.db.execute(select(User).where(User.id == user_id))
     user_obj = user_result.scalar_one_or_none()
     if not user_obj:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy người dùng")
     await require_project_access(project_id, user_obj, service.db)
 
     await service.complete_app_connect(installation_id, project_id)
-    return ok({"message": "GitHub App connected — call PATCH /github/connect to set repo owner/name"})
+    return ok({"message": "Đã kết nối GitHub App — gọi PATCH /github/connect để thiết lập tên owner/repo"})
 
 
 @router.patch(

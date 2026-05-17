@@ -59,9 +59,9 @@ async def update_user(
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if not target:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người dùng")
     if target.id == admin.id and body.role == "user":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Cannot demote yourself")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Không thể hạ cấp chính mình")
     if body.role is not None:
         target.role = body.role
     if body.is_active is not None:

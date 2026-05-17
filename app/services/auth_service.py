@@ -39,16 +39,16 @@ class AuthService:
             except httpx.HTTPStatusError as exc:
                 raise HTTPException(
                     status.HTTP_502_BAD_GATEWAY,
-                    detail=f"GitHub token exchange failed: {exc.response.status_code}",
+                    detail=f"Trao đổi token GitHub thất bại: {exc.response.status_code}",
                 )
             except httpx.RequestError:
-                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="GitHub unreachable")
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
 
         gh_access_token = token_resp.json().get("access_token")
         if not gh_access_token:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                detail="GitHub OAuth failed: no access token returned",
+                detail="Xác thực GitHub OAuth thất bại: không nhận được access token",
             )
 
         gh_headers = {"Authorization": f"Bearer {gh_access_token}", "Accept": "application/vnd.github+json"}
@@ -63,10 +63,10 @@ class AuthService:
             except httpx.HTTPStatusError as exc:
                 raise HTTPException(
                     status.HTTP_502_BAD_GATEWAY,
-                    detail=f"GitHub API error: {exc.response.status_code}",
+                    detail=f"Lỗi GitHub API: {exc.response.status_code}",
                 )
             except httpx.RequestError:
-                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="GitHub unreachable")
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
 
         gh_user = user_resp.json()
         emails = emails_resp.json()
@@ -78,7 +78,7 @@ class AuthService:
         if not verified_primary:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                detail="GitHub account has no verified primary email. Add and verify an email on GitHub before linking.",
+                detail="Tài khoản GitHub chưa có email chính đã xác minh. Vui lòng thêm và xác minh email trên GitHub trước khi liên kết.",
             )
 
         github_id = str(gh_user["id"])
@@ -112,15 +112,15 @@ class AuthService:
     async def refresh_tokens(self, refresh_token: str) -> tuple[str, str]:
         payload = decode_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Refresh token không hợp lệ")
         try:
             uid = uuid.UUID(payload["sub"])
         except (KeyError, ValueError):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Refresh token không hợp lệ")
         result = await self.db.execute(select(User).where(User.id == uid))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy người dùng")
         return create_access_token(str(user.id), user.role), create_refresh_token(str(user.id))
 
     async def get_user_for_dev_login(self, email: str) -> User:
@@ -129,7 +129,7 @@ class AuthService:
         )
         user = result.scalar_one_or_none()
         if not user:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No active user found with that email")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người dùng đang hoạt động với email này")
         return user
 
     def create_token_pair(self, user: User) -> tuple[str, str]:
