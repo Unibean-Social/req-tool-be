@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import Any
 
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Boolean, Enum as SAEnum
 from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -67,6 +67,9 @@ class Epic(AuditMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("actors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     prefix: Mapped[str] = mapped_column(String(20), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -118,7 +121,6 @@ class Story(AuditMixin, Base):
     references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    sprint_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # FK added Phase 2
 
     feature: Mapped["Feature"] = relationship(back_populates="stories")
     tasks: Mapped[list["Task"]] = relationship(back_populates="story", cascade="all, delete-orphan")
@@ -159,6 +161,7 @@ class AcceptanceCriteria(AuditMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     story: Mapped["Story"] = relationship(back_populates="acceptance_criteria")
 

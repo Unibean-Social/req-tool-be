@@ -29,4 +29,3 @@ class Project(AuditMixin, Base):
     actors: Mapped[list["Actor"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
     github_connection: Mapped["GithubConnection | None"] = relationship(back_populates="project", uselist=False)  # noqa: F821
     epics: Mapped[list["Epic"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
-    sprints: Mapped[list["Sprint"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
