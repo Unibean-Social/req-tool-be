@@ -11,7 +11,7 @@ from starlette.requests import Request
 from app.config import settings
 from app.database import engine
 from app.core.errors import http_exception_handler, validation_exception_handler, unhandled_exception_handler
-from app.routers import admin, github_auth, users, organizations, projects, actors, github, sync, health
+from app.routers import admin, github_auth, users, organizations, projects, actors, github, sync
 from app.routers.requirements import epics, features, stories, tasks
 
 
@@ -79,7 +79,7 @@ api_v1.include_router(stories.router)
 api_v1.include_router(tasks.router)
 api_v1.include_router(github.router)
 api_v1.include_router(sync.router)
-api_v1.include_router(health.router)
+
 app.include_router(api_v1)
 
 

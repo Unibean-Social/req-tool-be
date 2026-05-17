@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator, model_validator
 from typing import List
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 
 class Settings(BaseSettings):
@@ -33,13 +34,19 @@ class Settings(BaseSettings):
     # Defaults to jwt_secret_key in dev so no extra config is required locally.
     password_pepper: str = ""
 
-    # GitHub OAuth
+    # GitHub OAuth App (user login/auth only)
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/auth/github/callback"
-    github_repo_connect_redirect_uri: str = "http://localhost:8000/api/v1/github/connect/callback"
     # Separate HMAC key for OAuth CSRF state tokens — must not share jwt_secret_key
     github_state_secret: str = ""
+
+    # GitHub App (repo connect — installation token flow)
+    github_app_id: str = ""
+    github_app_client_id: str = ""  # reserved for future user-to-server App OAuth; not used in current flow
+    github_app_private_key: str = ""  # PEM string — in .env use literal \n, not actual newlines
+    github_app_slug: str = ""  # used to build install URL: github.com/apps/{slug}/installations/new
+    github_app_redirect_uri: str = "http://localhost:8000/api/v1/github/connect/callback"
 
     # App
     app_env: str = "development"
@@ -62,9 +69,28 @@ class Settings(BaseSettings):
                 raise ValueError("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set in non-development environments")
             if not self.github_state_secret:
                 raise ValueError("GITHUB_STATE_SECRET must be set in non-development environments")
+            if not self.github_app_id:
+                raise ValueError("GITHUB_APP_ID must be set in non-development environments")
+            if not self.github_app_private_key:
+                raise ValueError("GITHUB_APP_PRIVATE_KEY must be set in non-development environments")
+            if not self.github_app_slug:
+                raise ValueError("GITHUB_APP_SLUG must be set in non-development environments")
             if not self.cors_origins:
                 raise ValueError("CORS_ORIGINS must be non-empty in non-development environments")
+        if self.github_app_private_key:
+            self._validate_pem_key(self.github_app_private_key)
         return self
+
+    @staticmethod
+    def _validate_pem_key(key: str) -> None:
+        key_bytes = key.replace("\\n", "\n").encode()
+        try:
+            load_pem_private_key(key_bytes, password=None)
+        except Exception as e:
+            raise ValueError(
+                f"GITHUB_APP_PRIVATE_KEY is not a valid PEM private key: {e}. "
+                "Ensure the key uses literal \\n (backslash-n) between lines in .env."
+            )
 
 
 settings = Settings()

@@ -1,17 +1,17 @@
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+import jwt
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.crypto import decrypt_token, encrypt_token
 from app.core.github_client import (
-    BOARD_COLUMNS,
-    BOARD_TITLE,
     REQFLOW_LABELS,
     SPRINT_MILESTONE_TITLE,
     GithubClient,
@@ -22,7 +22,6 @@ from app.models.project import Project
 from app.schemas.github import (
     BootstrapReport,
     BootstrapResourceResult,
-    GithubConnectRequest,
     GithubConnectionStatusResponse,
     GithubIssuePreview,
     GithubSelectRepoRequest,
@@ -31,37 +30,104 @@ from app.schemas.github import (
     ImportedItem,
 )
 
-_GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 _TYPE_ORDER = {"epic": 0, "feature": 1, "story": 2, "task": 3}
+_GITHUB_APP_API = "https://api.github.com"
 
 
 class GithubService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- GitHub App auth helpers ---
+
+    def _make_app_jwt(self) -> str:
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,  # 60s back for clock skew
+            "exp": now + 600,
+            "iss": settings.github_app_id,
+        }
+        key = settings.github_app_private_key.replace("\\n", "\n")
+        return jwt.encode(payload, key, algorithm="RS256")
+
+    async def _generate_installation_token(self, installation_id: str) -> str:
+        app_jwt = self._make_app_jwt()
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    f"{_GITHUB_APP_API}/app/installations/{installation_id}/access_tokens",
+                    headers={
+                        "Authorization": f"Bearer {app_jwt}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=10,
+                )
+            except httpx.RequestError:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="GitHub unreachable")
+
+        if resp.status_code == 404:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="GitHub App installation not found — please reinstall the app",
+            )
+        if not resp.is_success:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail=f"GitHub installation token request failed: {resp.status_code}",
+            )
+        return resp.json()["token"]
+
+    async def _get_client(self, installation_id: str) -> GithubClient:
+        token = await self._generate_installation_token(installation_id)
+        return GithubClient(token)
+
+    # --- Connection management ---
+
     async def _require_connection(self, project_id: uuid.UUID) -> GithubConnection:
         result = await self.db.execute(
             select(GithubConnection).where(GithubConnection.project_id == project_id)
         )
         conn = result.scalar_one_or_none()
-        if not conn or not conn.access_token:
+        if not conn or not conn.installation_id:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                detail="No GitHub connection — connect the project first",
+                detail="No GitHub App connection — install the GitHub App first",
             )
         return conn
 
-    def _get_client(self, conn: GithubConnection) -> GithubClient:
-        token = decrypt_token(conn.access_token)
-        if not token:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail="Stored GitHub token could not be decrypted",
+    async def complete_app_connect(
+        self, installation_id: str, project_id: uuid.UUID
+    ) -> GithubConnection:
+        """Upsert a GitHub App installation connection. Concurrency-safe via ON CONFLICT."""
+        stmt = (
+            pg_insert(GithubConnection)
+            .values(
+                project_id=project_id,
+                installation_id=installation_id,
+                access_token=None,
+                repo_owner="",
+                repo_name="",
+                bootstrap_status="not_started",
+                sync_mode="manual",
             )
-        return GithubClient(token)
+            .on_conflict_do_update(
+                index_elements=["project_id"],
+                set_={"installation_id": installation_id, "access_token": None},
+            )
+        )
+        await self.db.execute(stmt)
+        await self.db.flush()
+        result = await self.db.execute(
+            select(GithubConnection).where(GithubConnection.project_id == project_id)
+        )
+        return result.scalar_one()
 
-    async def complete_oauth_connect(self, code: str, project_id: uuid.UUID) -> None:
-        """Exchange OAuth code for token and upsert the GithubConnection record."""
+    # DEPRECATED — OAuth-based repo connect. Kept until Phase 4 confirms no rollback needed.
+    async def _legacy_complete_oauth_connect(self, code: str, project_id: uuid.UUID) -> None:
+        from app.core.crypto import decrypt_token, encrypt_token
+
+        _GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
         async with httpx.AsyncClient() as client:
             try:
                 token_resp = await client.post(
@@ -70,7 +136,7 @@ class GithubService:
                         "client_id": settings.github_client_id,
                         "client_secret": settings.github_client_secret,
                         "code": code,
-                        "redirect_uri": settings.github_repo_connect_redirect_uri,
+                        "redirect_uri": settings.github_app_redirect_uri,
                     },
                     headers={"Accept": "application/json"},
                     timeout=10,
@@ -107,38 +173,9 @@ class GithubService:
             self.db.add(conn)
         await self.db.flush()
 
-    async def connect_pat(self, project_id: uuid.UUID, body: GithubConnectRequest) -> GithubConnection:
-        gh = GithubClient(body.access_token)
-        try:
-            await gh.get(f"/repos/{body.repo_owner}/{body.repo_name}")
-        except HTTPException as exc:
-            raise HTTPException(exc.status_code, detail=f"Cannot access repo: {exc.detail}")
-
-        encrypted = encrypt_token(body.access_token)
-        result = await self.db.execute(
-            select(GithubConnection).where(GithubConnection.project_id == project_id)
-        )
-        conn = result.scalar_one_or_none()
-        if conn:
-            conn.repo_owner = body.repo_owner
-            conn.repo_name = body.repo_name
-            conn.access_token = encrypted
-            conn.bootstrap_status = "not_started"
-        else:
-            conn = GithubConnection(
-                project_id=project_id,
-                repo_owner=body.repo_owner,
-                repo_name=body.repo_name,
-                access_token=encrypted,
-                bootstrap_status="not_started",
-            )
-            self.db.add(conn)
-        await self.db.flush()
-        return conn
-
     async def select_repo(self, project_id: uuid.UUID, body: GithubSelectRepoRequest) -> GithubConnection:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn.installation_id)
         try:
             await gh.get(f"/repos/{body.repo_owner}/{body.repo_name}")
         except HTTPException as exc:
@@ -150,9 +187,10 @@ class GithubService:
 
     async def list_repos(self, project_id: uuid.UUID) -> list[dict]:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
-        repos = await gh.get("/user/repos", params={"sort": "updated", "per_page": 50})
-        return [{"full_name": r["full_name"], "private": r["private"], "html_url": r["html_url"]} for r in repos]
+        gh = await self._get_client(conn.installation_id)
+        repos = await gh.get("/installation/repositories", params={"per_page": 50})
+        items = repos if isinstance(repos, list) else repos.get("repositories", [])
+        return [{"full_name": r["full_name"], "private": r["private"], "html_url": r["html_url"]} for r in items]
 
     async def get_status(self, project_id: uuid.UUID) -> GithubConnectionStatusResponse:
         result = await self.db.execute(
@@ -162,7 +200,7 @@ class GithubService:
         if not conn:
             return GithubConnectionStatusResponse(connected=False, bootstrap_status="not_started")
         return GithubConnectionStatusResponse(
-            connected=bool(conn.access_token),
+            connected=bool(conn.installation_id),
             repo_owner=conn.repo_owner or None,
             repo_name=conn.repo_name or None,
             bootstrap_status=conn.bootstrap_status,
@@ -171,24 +209,22 @@ class GithubService:
 
     async def bootstrap(self, project_id: uuid.UUID) -> BootstrapReport:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn.installation_id)
 
         conn.bootstrap_status = "in_progress"
         await self.db.flush()
 
         label_results = await self._bootstrap_labels(gh, conn.repo_owner, conn.repo_name)
         milestone_result = await self._bootstrap_milestone(gh, conn.repo_owner, conn.repo_name)
-        board_result = await self._bootstrap_board(gh, conn.repo_owner, conn.repo_name)
 
         all_ok = (
             all(r.status != "failed" for r in label_results)
             and milestone_result.status != "failed"
-            and board_result.status != "failed"
         )
         conn.bootstrap_status = "completed" if all_ok else "failed"
         await self.db.flush()
 
-        return BootstrapReport(labels=label_results, milestone=milestone_result, board=board_result)
+        return BootstrapReport(labels=label_results, milestone=milestone_result)
 
     async def _bootstrap_labels(
         self, gh: GithubClient, owner: str, repo: str
@@ -228,91 +264,9 @@ class GithubService:
         except HTTPException as exc:
             return BootstrapResourceResult(name=SPRINT_MILESTONE_TITLE, status="failed", detail=exc.detail)
 
-    async def _bootstrap_board(
-        self, gh: GithubClient, owner: str, repo: str
-    ) -> BootstrapResourceResult:
-        try:
-            repo_data = await gh.graphql(
-                """
-                query($owner: String!, $name: String!) {
-                  repository(owner: $owner, name: $name) {
-                    id
-                    owner { id }
-                  }
-                }
-                """,
-                {"owner": owner, "name": repo},
-            )
-            owner_node_id = repo_data["repository"]["owner"]["id"]
-
-            project_data = await gh.graphql(
-                """
-                mutation($ownerId: ID!, $title: String!) {
-                  createProjectV2(input: {ownerId: $ownerId, title: $title}) {
-                    projectV2 { id url }
-                  }
-                }
-                """,
-                {"ownerId": owner_node_id, "title": BOARD_TITLE},
-            )
-            project_id_node = project_data["createProjectV2"]["projectV2"]["id"]
-            board_url = project_data["createProjectV2"]["projectV2"]["url"]
-
-            fields_data = await gh.graphql(
-                """
-                query($id: ID!) {
-                  node(id: $id) {
-                    ... on ProjectV2 {
-                      fields(first: 20) {
-                        nodes {
-                          ... on ProjectV2SingleSelectField {
-                            id name
-                            options { id name }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                """,
-                {"id": project_id_node},
-            )
-            status_field = next(
-                (f for f in fields_data["node"]["fields"]["nodes"] if f.get("name") == "Status"),
-                None,
-            )
-            if status_field:
-                column_colors = ["GRAY", "BLUE", "YELLOW", "ORANGE", "GREEN"]
-                options = [
-                    {"name": col, "color": column_colors[i % len(column_colors)], "description": ""}
-                    for i, col in enumerate(BOARD_COLUMNS)
-                ]
-                await gh.graphql(
-                    """
-                    mutation($input: UpdateProjectV2FieldInput!) {
-                      updateProjectV2Field(input: $input) {
-                        projectV2Field {
-                          ... on ProjectV2SingleSelectField { id name }
-                        }
-                      }
-                    }
-                    """,
-                    {"input": {
-                        "fieldId": status_field["id"],
-                        "projectId": project_id_node,
-                        "singleSelectField": {"options": options},
-                    }},
-                )
-
-            return BootstrapResourceResult(name=BOARD_TITLE, status="created", detail=board_url)
-        except HTTPException as exc:
-            return BootstrapResourceResult(name=BOARD_TITLE, status="failed", detail=exc.detail)
-        except Exception as exc:
-            return BootstrapResourceResult(name=BOARD_TITLE, status="failed", detail=str(exc))
-
     async def import_preview(self, project_id: uuid.UUID) -> ImportPreviewResponse:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn.installation_id)
         issues = await gh.get(
             f"/repos/{conn.repo_owner}/{conn.repo_name}/issues",
             params={"state": "open", "per_page": 100},
@@ -344,7 +298,7 @@ class GithubService:
         self, project_id: uuid.UUID, body: ImportConfirmRequest
     ) -> list[ImportedItem]:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn.installation_id)
 
         raw_issues = await gh.get(
             f"/repos/{conn.repo_owner}/{conn.repo_name}/issues",

@@ -8,12 +8,6 @@ class ConnectInitResponse(BaseModel):
     redirect_url: str
 
 
-class GithubConnectRequest(BaseModel):
-    repo_owner: str
-    repo_name: str
-    access_token: str
-
-
 class GithubSelectRepoRequest(BaseModel):
     repo_owner: str
     repo_name: str
@@ -36,7 +30,6 @@ class BootstrapResourceResult(BaseModel):
 class BootstrapReport(BaseModel):
     labels: list[BootstrapResourceResult]
     milestone: BootstrapResourceResult
-    board: BootstrapResourceResult
 
 
 class GithubIssuePreview(BaseModel):

@@ -1,16 +1,43 @@
 ---
 name: ck:plan
-description: Plan a feature or system before implementation. Use when the user says "plan this", "I want to build X", "how do I implement Y", or when /ck:brainstorm produces a spec.md. Always run before /ck:cook. Auto-detects --fast (simple, single-file) vs --hard (multi-file, novel domain, security-sensitive). Flags --no-test and --tdd propagate into the cook pipeline.
+description: Plan a feature or system before implementation. Use when the user says "plan this", "I want to build X", "how do I implement Y", or when /ck:brainstorm produces a spec.md. Always run before /ck:cook. Auto-detects --fast (simple, single-file) vs --hard (multi-file, novel domain, security-sensitive). Flags --no-test and --tdd propagate into the cook pipeline. Use --archive to archive a completed plan into plans/archive/.
 user-invocable: true
 ---
 
 # ck:plan — Structured Planning Pipeline
 
+Modes (default = Hard if ≥ 3 components, else Fast):
+- **`--fast`** — skip research + red-team; planner only
+- **`--hard`** — research (×2 parallel) + red-team review
+- **`--no-test`** — propagates to cook: skip tester
+- **`--tdd`** — propagates to cook: write failing tests before implementing
+- **`--archive <plan-path>`** — archive a completed plan; skip all planning steps
+
 ---
 
-### Step 0 — Scope Challenge
+### Step 0 — Archive Mode (early-return)
 
-Before spawning any agents, detect mode and challenge scope:
+If `--archive` flag present:
+
+1. Read `plan.md` — verify `**Status:** ✅ Done`. If not Done → stop: `[ERROR] Plan is not marked Done. Complete it with /ck:cook first.`
+2. Copy entire `plans/{slug}/` → `plans/archive/{slug}/` (preserve all files).
+3. Open or create `plans/archive/SUMMARY.md`; append entry:
+
+```markdown
+## {slug}
+
+**Date:** {date from plan.md}
+**Feature:** {feature name}
+**Phases:** {count} — {comma-separated phase names}
+**Key decisions:** {1–2 bullets from Key Decisions section, or "(none)"}
+```
+
+4. Report: `Archived → plans/archive/{slug}/` and updated `plans/archive/SUMMARY.md`.
+5. **Stop** — do not continue to Step 1.
+
+---
+
+### Step 1 — Scope Challenge
 
 ```
 # Scope Challenge:
@@ -48,7 +75,7 @@ If a spec file path is provided or `plans/{slug}/spec.md` exists adjacent to any
 
 ---
 
-### Step 1 — Research (Hard only)
+### Step 2 — Research (Hard only)
 
 Spawn **2 `researcher` agents in parallel**:
 - **Instance A** — role: `Primary` — recommended approach and best practices
@@ -61,7 +88,7 @@ Spawn **2 `researcher` agents in parallel**:
 
 ---
 
-### Step 2 — Plan Creation
+### Step 3 — Plan Creation
 
 Spawn the **`planner` agent** with: feature description + mode + research reports + test flag + spec file path (if any).
 
@@ -80,7 +107,7 @@ plans/{slug}/
 
 ---
 
-### Step 3 — Red-Team Review (Hard only)
+### Step 4 — Red-Team Review (Hard only)
 
 Spawn **`plan-reviewer`** with paths to all plan files (+ spec.md if present).
 
@@ -93,7 +120,7 @@ If `plan-reviewer` returns `BLOCK`: revise the flagged phase and re-run before p
 
 ---
 
-### Step 4 — Validation + Handoff
+### Step 5 — Validation + Handoff
 
 Ask 3–5 targeted questions about the plan's riskiest points. **Wait for user answers.**
 
@@ -110,8 +137,8 @@ Ready to cook:
 
 ## Agents
 
-| Agent           | Step | Modes |
-|-----------------|------|-------|
-| `researcher`    | 1    | Hard (×2 parallel) |
-| `planner`       | 2    | All |
-| `plan-reviewer` | 3    | Hard |
+| Agent           | Step | Modes                      |
+|-----------------|------|----------------------------|
+| `researcher`    | 2    | Hard (×2 parallel)         |
+| `planner`       | 3    | All (except `--archive`)   |
+| `plan-reviewer` | 4    | Hard (except `--archive`)  |
