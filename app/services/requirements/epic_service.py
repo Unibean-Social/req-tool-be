@@ -7,8 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.actor import Actor
 from app.models.requirements import (
     TERMINAL_STATUSES,
+    AcceptanceCriteria,
     CloseReason,
     Epic,
     Feature,
@@ -19,6 +21,7 @@ from app.models.requirements import (
 )
 from app.models.user import User
 from app.schemas.requirements import CloseRequest, EpicCreateRequest, EpicUpdateRequest
+from app.schemas.requirement_model import RequirementModelResponse
 from app.services.requirements.helpers import check_epic_title_excludes_actors, _next_epic_prefix
 
 
@@ -26,11 +29,14 @@ class EpicService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, project_id: uuid.UUID, body: EpicCreateRequest, user: User) -> Epic:
+    async def create(
+        self, project_id: uuid.UUID, body: EpicCreateRequest, user: User, actor_id: uuid.UUID | None = None
+    ) -> Epic:
         await check_epic_title_excludes_actors(project_id, body.title, self.db)
         prefix = await _next_epic_prefix(project_id, self.db)
         epic = Epic(
             project_id=project_id,
+            actor_id=actor_id,
             prefix=prefix,
             title=body.title,
             description=body.description,
@@ -103,3 +109,39 @@ class EpicService:
             .order_by(Epic.prefix)
         )
         return list(result.scalars().all())
+
+    async def get_requirement_model(
+        self, project_id: uuid.UUID, actor_id: uuid.UUID
+    ) -> RequirementModelResponse:
+        actor_result = await self.db.execute(
+            select(Actor).where(Actor.id == actor_id, Actor.project_id == project_id)
+        )
+        actor = actor_result.scalar_one_or_none()
+        if not actor:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+
+        epic_result = await self.db.execute(
+            select(Epic)
+            .where(Epic.actor_id == actor_id, Epic.project_id == project_id)
+            .options(
+                selectinload(Epic.features).selectinload(Feature.stories).selectinload(
+                    Story.acceptance_criteria
+                )
+            )
+            .order_by(Epic.prefix)
+        )
+        epics = list(epic_result.scalars().unique().all())
+
+        features: list[Feature] = []
+        stories: list[Story] = []
+        for epic in epics:
+            for feature in epic.features:
+                features.append(feature)
+                stories.extend(feature.stories)
+
+        return RequirementModelResponse(
+            actor=actor,
+            epics=epics,
+            features=features,
+            user_stories=stories,
+        )

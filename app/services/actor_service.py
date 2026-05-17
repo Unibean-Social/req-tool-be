@@ -24,6 +24,15 @@ class ActorService:
         await self.db.flush()
         return actor
 
+    async def get(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> Actor:
+        result = await self.db.execute(
+            select(Actor).where(Actor.id == actor_id, Actor.project_id == project_id)
+        )
+        actor = result.scalar_one_or_none()
+        if not actor:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Actor not found")
+        return actor
+
     async def list(self, project_id: uuid.UUID) -> list[Actor]:
         result = await self.db.execute(select(Actor).where(Actor.project_id == project_id))
         return list(result.scalars().all())

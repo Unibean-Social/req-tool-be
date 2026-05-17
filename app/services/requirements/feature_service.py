@@ -37,9 +37,11 @@ class FeatureService:
         w = get_feature_nfr_warnings(feature)
         return resp.model_copy(update={"warnings": w}) if w else resp
 
-    async def create(self, project_id: uuid.UUID, body: FeatureCreateRequest) -> FeatureResponse:
+    async def create(
+        self, project_id: uuid.UUID, epic_id: uuid.UUID, body: FeatureCreateRequest
+    ) -> FeatureResponse:
         result = await self.db.execute(
-            select(Epic).where(Epic.id == body.epic_id, Epic.project_id == project_id)
+            select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id)
         )
         epic = result.scalar_one_or_none()
         if not epic:

@@ -39,11 +39,11 @@ class StoryService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Story not found")
         return story
 
-    async def create(self, project_id: uuid.UUID, body: StoryCreateRequest) -> Story:
+    async def create(self, project_id: uuid.UUID, feature_id: uuid.UUID, body: StoryCreateRequest) -> Story:
         result = await self.db.execute(
             select(Feature)
             .join(Epic, Feature.epic_id == Epic.id)
-            .where(Feature.id == body.feature_id, Epic.project_id == project_id)
+            .where(Feature.id == feature_id, Epic.project_id == project_id)
         )
         feature = result.scalar_one_or_none()
         if not feature:
