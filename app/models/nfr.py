@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Text
+from sqlalchemy import Column, Enum, ForeignKey, Table, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,14 @@ class NFRCategory(str, enum.Enum):
     maintainability = "maintainability"
 
 
+nfr_feature_links = Table(
+    "nfr_feature_links",
+    Base.metadata,
+    Column("nfr_id", UUID(as_uuid=True), ForeignKey("nfrs.id", ondelete="CASCADE"), primary_key=True),
+    Column("feature_id", UUID(as_uuid=True), ForeignKey("features.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class NFR(AuditMixin, Base):
     __tablename__ = "nfrs"
 
@@ -29,9 +37,8 @@ class NFR(AuditMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
-    source_feature_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("features.id", ondelete="SET NULL"), nullable=True
-    )
 
     project: Mapped["Project"] = relationship(back_populates="nfrs")  # noqa: F821
-    source_feature: Mapped["Feature"] = relationship()  # noqa: F821
+    features: Mapped[list["Feature"]] = relationship(  # noqa: F821
+        secondary=nfr_feature_links, lazy="raise"
+    )

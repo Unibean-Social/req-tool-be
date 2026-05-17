@@ -11,14 +11,14 @@ class NFRCreateRequest(BaseModel):
     category: NFRCategory
     description: str
     priority: Priority = Priority.medium
-    source_feature_id: uuid.UUID | None = None
+    feature_ids: list[uuid.UUID] = []
 
 
 class NFRUpdateRequest(BaseModel):
     category: NFRCategory | None = None
     description: str | None = None
     priority: Priority | None = None
-    source_feature_id: uuid.UUID | None = None
+    feature_ids: list[uuid.UUID] | None = None
 
 
 class NFRResponse(BaseModel):
@@ -29,6 +29,6 @@ class NFRResponse(BaseModel):
     category: NFRCategory
     description: str
     priority: Priority
-    source_feature_id: uuid.UUID | None
+    feature_ids: list[uuid.UUID] = []
     created_at: datetime
     updated_at: datetime

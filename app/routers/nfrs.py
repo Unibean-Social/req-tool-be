@@ -70,3 +70,27 @@ async def delete_nfr(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete(project_id, nfr_id)
+
+
+@router.post("/{nfr_id}/features/{feature_id}", response_model=ApiResponse[NFRResponse])
+async def add_feature_link(
+    project_id: uuid.UUID,
+    nfr_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: NFRService = Depends(get_nfr_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.add_feature_link(project_id, nfr_id, feature_id))
+
+
+@router.delete("/{nfr_id}/features/{feature_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_feature_link(
+    project_id: uuid.UUID,
+    nfr_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: NFRService = Depends(get_nfr_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.remove_feature_link(project_id, nfr_id, feature_id)
