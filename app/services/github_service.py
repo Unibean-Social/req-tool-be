@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import jwt
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -273,10 +273,11 @@ class GithubService:
                 await self.db.execute(
                     select(Project).where(Project.id == project_id).with_for_update()
                 )
-                count = await self.db.scalar(
-                    select(func.count(Epic.id)).where(Epic.project_id == project_id)
+                max_n = await self.db.scalar(
+                    select(func.max(cast(func.substr(Epic.prefix, 2), Integer)))
+                    .where(Epic.project_id == project_id)
                 )
-                prefix = f"E{(count or 0) + 1}"
+                prefix = f"E{(max_n or 0) + 1}"
                 entity: Any = Epic(project_id=project_id, prefix=prefix, title=title)
 
             elif mapping.item_type == "feature":
@@ -288,10 +289,12 @@ class GithubService:
                 await self.db.execute(
                     select(Epic).where(Epic.id == parent.id).with_for_update()
                 )
-                count = await self.db.scalar(
-                    select(func.count(Feature.id)).where(Feature.epic_id == parent.id)
+                offset = len(parent.prefix) + 3
+                max_n = await self.db.scalar(
+                    select(func.max(cast(func.substr(Feature.prefix, offset), Integer)))
+                    .where(Feature.epic_id == parent.id)
                 )
-                prefix = f"{parent.prefix}.F{(count or 0) + 1}"
+                prefix = f"{parent.prefix}.F{(max_n or 0) + 1}"
                 entity = Feature(epic_id=parent.id, prefix=prefix, title=title)
 
             elif mapping.item_type == "story":
@@ -303,10 +306,12 @@ class GithubService:
                 await self.db.execute(
                     select(Feature).where(Feature.id == parent.id).with_for_update()
                 )
-                count = await self.db.scalar(
-                    select(func.count(Story.id)).where(Story.feature_id == parent.id)
+                offset = len(parent.prefix) + 3
+                max_n = await self.db.scalar(
+                    select(func.max(cast(func.substr(Story.prefix, offset), Integer)))
+                    .where(Story.feature_id == parent.id)
                 )
-                prefix = f"{parent.prefix}.S{(count or 0) + 1}"
+                prefix = f"{parent.prefix}.S{(max_n or 0) + 1}"
                 entity = Story(feature_id=parent.id, prefix=prefix, title=title)
 
             else:  # task
@@ -318,10 +323,12 @@ class GithubService:
                 await self.db.execute(
                     select(Story).where(Story.id == parent.id).with_for_update()
                 )
-                count = await self.db.scalar(
-                    select(func.count(Task.id)).where(Task.story_id == parent.id)
+                offset = len(parent.prefix) + 3
+                max_n = await self.db.scalar(
+                    select(func.max(cast(func.substr(Task.prefix, offset), Integer)))
+                    .where(Task.story_id == parent.id)
                 )
-                prefix = f"{parent.prefix}.T{(count or 0) + 1}"
+                prefix = f"{parent.prefix}.T{(max_n or 0) + 1}"
                 entity = Task(story_id=parent.id, prefix=prefix, title=title)
 
             self.db.add(entity)
