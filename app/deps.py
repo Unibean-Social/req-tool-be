@@ -15,7 +15,6 @@ from app.services.requirements.story_service import StoryService
 from app.services.requirements.task_service import TaskService
 from app.services.organization_service import OrgService
 from app.services.project_service import ProjectService
-from app.services.sprint_service import SprintService
 from app.services.actor_service import ActorService
 
 bearer = HTTPBearer()
@@ -82,10 +81,6 @@ def get_org_service(db: AsyncSession = Depends(get_db)) -> OrgService:
 
 def get_project_service(db: AsyncSession = Depends(get_db)) -> ProjectService:
     return ProjectService(db)
-
-
-def get_sprint_service(db: AsyncSession = Depends(get_db)) -> SprintService:
-    return SprintService(db)
 
 
 def get_actor_service(db: AsyncSession = Depends(get_db)) -> ActorService:

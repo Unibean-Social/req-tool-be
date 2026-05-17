@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import OrgMember
 from app.models.project import Project
-from app.models.sprint import Sprint
 
 
 async def require_org_member(org_id: uuid.UUID, user, db: AsyncSession) -> OrgMember:
@@ -39,11 +38,3 @@ async def require_project_access(project_id: uuid.UUID, user, db: AsyncSession) 
     return project
 
 
-async def require_sprint(sprint_id: uuid.UUID, project_id: uuid.UUID, db: AsyncSession) -> Sprint:
-    result = await db.execute(
-        select(Sprint).where(Sprint.id == sprint_id, Sprint.project_id == project_id)
-    )
-    sprint = result.scalar_one_or_none()
-    if not sprint:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Sprint not found")
-    return sprint

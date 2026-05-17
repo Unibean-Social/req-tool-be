@@ -37,9 +37,11 @@ async def create_project(client, h: dict, org_id: str) -> dict:
     return r.json()["data"]
 
 
-async def create_epic(client, h: dict, pid: str, title: str = "Epic", labels: list | None = None) -> dict:
+async def create_epic(
+    client, h: dict, pid: str, actor_id: str, title: str = "Epic", labels: list | None = None
+) -> dict:
     r = await client.post(
-        f"{BASE}/projects/{pid}/epics",
+        f"{BASE}/projects/{pid}/actors/{actor_id}/epics",
         json={"title": title, "labels": labels or []},
         headers=h,
     )
