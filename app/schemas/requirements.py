@@ -22,6 +22,7 @@ class AcceptanceCriteriaResponse(BaseModel):
     id: uuid.UUID
     description: str
     order: int
+    done: bool = False
 
 
 # ── Epic ──────────────────────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ class EpicResponse(BaseModel):
 
     id: uuid.UUID
     project_id: uuid.UUID
+    actor_id: uuid.UUID | None = None
     prefix: str
     title: str
     description: str | None
@@ -70,7 +72,6 @@ class EpicResponse(BaseModel):
 
 
 class FeatureCreateRequest(BaseModel):
-    epic_id: uuid.UUID
     title: str
     description: str | None = None
     priority: Priority = Priority.medium
@@ -117,7 +118,6 @@ class FeatureResponse(BaseModel):
 
 
 class StoryCreateRequest(BaseModel):
-    feature_id: uuid.UUID
     title: str
     description: str | None = None
     actor_ref: str | None = None
@@ -180,7 +180,6 @@ class StoryResponse(BaseModel):
     labels: Any
     references: Any = None
     story_points: int | None = None
-    sprint_id: uuid.UUID | None = None
     acceptance_criteria: list[AcceptanceCriteriaResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -309,3 +308,18 @@ class EpicTree(BaseModel):
     status: ItemStatus
     priority: Priority
     features: list[FeatureTree] = []
+
+
+# ── Requirement Model (aggregated tree) ───────────────────────────────────────
+
+
+class CanvasLayoutNode(BaseModel):
+    id: uuid.UUID
+    kind: str
+    x: float
+    y: float
+    collapsed: bool = False
+
+
+class CanvasLayoutRequest(BaseModel):
+    nodes: list[CanvasLayoutNode] = []
