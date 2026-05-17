@@ -4,31 +4,22 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.deps import current_user, get_feature_service
+from app.deps import current_user, get_feature_service, get_story_service
 from app.models.requirements import ItemStatus
 from app.models.user import User
 from app.schemas.requirements import (
     CloseRequest,
     CloseReasonResponse,
-    FeatureCreateRequest,
     FeatureResponse,
     FeatureUpdateRequest,
+    StoryCreateRequest,
+    StoryResponse,
 )
 from app.schemas.response import ApiResponse
 from app.services.requirements.feature_service import FeatureService
+from app.services.requirements.story_service import StoryService
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["features"])
-
-
-@router.post("/features", response_model=ApiResponse[FeatureResponse], status_code=status.HTTP_201_CREATED)
-async def create_feature(
-    project_id: uuid.UUID,
-    body: FeatureCreateRequest,
-    user: User = Depends(current_user),
-    service: FeatureService = Depends(get_feature_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return created(await service.create(project_id, body))
 
 
 @router.get("/features", response_model=ApiResponse[list[FeatureResponse]])
@@ -89,3 +80,19 @@ async def close_feature(
 ):
     await require_project_access(project_id, user, service.db)
     return ok(await service.close(project_id, feature_id, body, user))
+
+
+@router.post(
+    "/features/{feature_id}/user-stories",
+    response_model=ApiResponse[StoryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_story_for_feature(
+    project_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    body: StoryCreateRequest,
+    user: User = Depends(current_user),
+    story_service: StoryService = Depends(get_story_service),
+):
+    await require_project_access(project_id, user, story_service.db)
+    return created(await story_service.create(project_id, feature_id, body))

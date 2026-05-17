@@ -11,7 +11,6 @@ from app.schemas.requirements import (
     CloseRequest,
     CloseReasonResponse,
     StoryBuilderRequest,
-    StoryCreateRequest,
     StoryResponse,
     StoryUpdateRequest,
 )
@@ -19,17 +18,6 @@ from app.schemas.response import ApiResponse
 from app.services.requirements.story_service import StoryService
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["stories"])
-
-
-@router.post("/stories", response_model=ApiResponse[StoryResponse], status_code=status.HTTP_201_CREATED)
-async def create_story(
-    project_id: uuid.UUID,
-    body: StoryCreateRequest,
-    user: User = Depends(current_user),
-    service: StoryService = Depends(get_story_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return created(await service.create(project_id, body))
 
 
 @router.get("/stories", response_model=ApiResponse[list[StoryResponse]])
@@ -46,50 +34,50 @@ async def list_stories(
     return ok(await service.list(project_id, feature_id, item_status, limit, offset))
 
 
-@router.get("/stories/{story_id}", response_model=ApiResponse[StoryResponse])
+@router.get("/stories/{user_story_id}", response_model=ApiResponse[StoryResponse])
 async def get_story(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
+    user_story_id: uuid.UUID,
     user: User = Depends(current_user),
     service: StoryService = Depends(get_story_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.get(project_id, story_id))
+    return ok(await service.get(project_id, user_story_id))
 
 
-@router.patch("/stories/{story_id}", response_model=ApiResponse[StoryResponse])
+@router.patch("/user-stories/{user_story_id}", response_model=ApiResponse[StoryResponse])
 async def update_story(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
+    user_story_id: uuid.UUID,
     body: StoryUpdateRequest,
     user: User = Depends(current_user),
     service: StoryService = Depends(get_story_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.update(project_id, story_id, body))
+    return ok(await service.update(project_id, user_story_id, body))
 
 
-@router.delete("/stories/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/user-stories/{user_story_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_story(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
+    user_story_id: uuid.UUID,
     user: User = Depends(current_user),
     service: StoryService = Depends(get_story_service),
 ):
     await require_project_access(project_id, user, service.db)
-    await service.delete(project_id, story_id)
+    await service.delete(project_id, user_story_id)
 
 
-@router.patch("/stories/{story_id}/close", response_model=ApiResponse[CloseReasonResponse])
+@router.patch("/user-stories/{user_story_id}/close", response_model=ApiResponse[CloseReasonResponse])
 async def close_story(
     project_id: uuid.UUID,
-    story_id: uuid.UUID,
+    user_story_id: uuid.UUID,
     body: CloseRequest,
     user: User = Depends(current_user),
     service: StoryService = Depends(get_story_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.close(project_id, story_id, body, user))
+    return ok(await service.close(project_id, user_story_id, body, user))
 
 
 @router.post("/story-builder", response_model=ApiResponse[StoryResponse], status_code=status.HTTP_201_CREATED)

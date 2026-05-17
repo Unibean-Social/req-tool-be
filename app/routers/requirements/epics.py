@@ -4,31 +4,22 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.deps import current_user, get_epic_service
+from app.deps import current_user, get_epic_service, get_feature_service
 from app.models.user import User
 from app.schemas.requirements import (
     CloseRequest,
     CloseReasonResponse,
-    EpicCreateRequest,
     EpicResponse,
     EpicTree,
     EpicUpdateRequest,
+    FeatureCreateRequest,
+    FeatureResponse,
 )
 from app.schemas.response import ApiResponse
 from app.services.requirements.epic_service import EpicService
+from app.services.requirements.feature_service import FeatureService
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["epics"])
-
-
-@router.post("/epics", response_model=ApiResponse[EpicResponse], status_code=status.HTTP_201_CREATED)
-async def create_epic(
-    project_id: uuid.UUID,
-    body: EpicCreateRequest,
-    user: User = Depends(current_user),
-    service: EpicService = Depends(get_epic_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return created(await service.create(project_id, body, user))
 
 
 @router.get("/epics", response_model=ApiResponse[list[EpicResponse]])
@@ -95,3 +86,19 @@ async def get_requirements_tree(
 ):
     await require_project_access(project_id, user, service.db)
     return ok(await service.get_tree(project_id))
+
+
+@router.post(
+    "/epics/{epic_id}/features",
+    response_model=ApiResponse[FeatureResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_feature_for_epic(
+    project_id: uuid.UUID,
+    epic_id: uuid.UUID,
+    body: FeatureCreateRequest,
+    user: User = Depends(current_user),
+    feature_service: FeatureService = Depends(get_feature_service),
+):
+    await require_project_access(project_id, user, feature_service.db)
+    return created(await feature_service.create(project_id, epic_id, body))
