@@ -116,6 +116,16 @@ class StoryService:
             story.labels = body.labels
         if body.story_points is not None:
             story.story_points = body.story_points
+        if body.acceptance_criteria is not None:
+            for ac in story.acceptance_criteria:
+                await self.db.delete(ac)
+            await self.db.flush()
+            for i, ac in enumerate(body.acceptance_criteria):
+                self.db.add(AcceptanceCriteria(
+                    story_id=story.id,
+                    description=ac.description,
+                    order=ac.order if ac.order else i,
+                ))
         return story
 
     async def delete(self, project_id: uuid.UUID, story_id: uuid.UUID) -> None:

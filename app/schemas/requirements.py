@@ -138,6 +138,7 @@ class StoryUpdateRequest(BaseModel):
     priority: Priority | None = None
     labels: list[str] | None = None
     story_points: int | None = None
+    acceptance_criteria: list[AcceptanceCriteriaIn] | None = None
 
     @field_validator("status")
     @classmethod
