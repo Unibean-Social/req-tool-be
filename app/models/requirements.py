@@ -95,7 +95,6 @@ class Feature(AuditMixin, Base):
     status: Mapped[ItemStatus] = mapped_column(_item_status, nullable=False, default=ItemStatus.draft)
     priority: Mapped[Priority] = mapped_column(_priority, nullable=False, default=Priority.medium)
     labels: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
-    nfr_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     epic: Mapped["Epic"] = relationship(back_populates="features")
@@ -121,6 +120,7 @@ class Story(AuditMixin, Base):
     references: Mapped[Any] = mapped_column(JSON, nullable=True, default=list)
 
     story_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    business_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     feature: Mapped["Feature"] = relationship(back_populates="stories")
     tasks: Mapped[list["Task"]] = relationship(back_populates="story", cascade="all, delete-orphan")

@@ -32,12 +32,6 @@ def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> No
     parent_obj.references = refs
 
 
-def get_feature_nfr_warnings(feature: Any) -> list[str]:
-    if not feature.nfr_note or not feature.nfr_note.strip():
-        return ["Feature này chưa có ghi chú về yêu cầu phi chức năng"]
-    return []
-
-
 async def _next_epic_prefix(project_id: uuid.UUID, db: AsyncSession) -> str:
     await db.execute(select(Project).where(Project.id == project_id).with_for_update())
     max_n = await db.scalar(

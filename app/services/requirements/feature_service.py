@@ -5,8 +5,9 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType
+from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType, Story
 from app.models.user import User
 from app.schemas.requirements import (
     CloseRequest,
@@ -14,7 +15,7 @@ from app.schemas.requirements import (
     FeatureResponse,
     FeatureUpdateRequest,
 )
-from app.services.requirements.helpers import get_feature_nfr_warnings, _next_feature_prefix, _update_parent_references
+from app.services.requirements.helpers import _next_feature_prefix, _update_parent_references
 
 
 class FeatureService:
@@ -26,6 +27,7 @@ class FeatureService:
             select(Feature)
             .join(Epic, Feature.epic_id == Epic.id)
             .where(Feature.id == feature_id, Epic.project_id == project_id)
+            .options(selectinload(Feature.stories))
         )
         feature = result.scalar_one_or_none()
         if not feature:
@@ -34,8 +36,12 @@ class FeatureService:
 
     def _to_response(self, feature: Feature) -> FeatureResponse:
         resp = FeatureResponse.model_validate(feature)
-        w = get_feature_nfr_warnings(feature)
-        return resp.model_copy(update={"warnings": w}) if w else resp
+        stories = feature.stories if feature.stories is not None else []
+        return resp.model_copy(update={
+            "total_story_points": sum(s.story_points or 0 for s in stories),
+            "total_business_value": sum(s.business_value or 0 for s in stories),
+            "story_count": len(stories),
+        })
 
     async def create(
         self, project_id: uuid.UUID, epic_id: uuid.UUID, body: FeatureCreateRequest
@@ -54,7 +60,6 @@ class FeatureService:
             description=body.description,
             priority=body.priority,
             labels=body.labels,
-            nfr_note=body.nfr_note,
         )
         self.db.add(feature)
         await self.db.flush()
@@ -73,6 +78,7 @@ class FeatureService:
             select(Feature)
             .join(Epic, Feature.epic_id == Epic.id)
             .where(Epic.project_id == project_id)
+            .options(selectinload(Feature.stories))
         )
         if epic_id:
             stmt = stmt.where(Feature.epic_id == epic_id)
@@ -99,8 +105,6 @@ class FeatureService:
             feature.priority = body.priority
         if body.labels is not None:
             feature.labels = body.labels
-        if body.nfr_note is not None:
-            feature.nfr_note = body.nfr_note
         return self._to_response(feature)
 
     async def delete(self, project_id: uuid.UUID, feature_id: uuid.UUID) -> None:

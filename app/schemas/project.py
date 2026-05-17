@@ -8,11 +8,7 @@ class ProjectCreateRequest(BaseModel):
     description: str | None = None
     context: str | None = None
     problems: list[str] = []
-    stakeholders: list[str] = []
-    business_goals: list[str] = []
-    business_flows: list[str] = []
-    business_rules: list[str] = []
-    proposed_solutions: list[str] = []
+    proposed_solutions: list[str] | None = None
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -20,10 +16,6 @@ class ProjectUpdateRequest(BaseModel):
     description: str | None = None
     context: str | None = None
     problems: list[str] | None = None
-    stakeholders: list[str] | None = None
-    business_goals: list[str] | None = None
-    business_flows: list[str] | None = None
-    business_rules: list[str] | None = None
     proposed_solutions: list[str] | None = None
 
 
@@ -37,9 +29,5 @@ class ProjectResponse(BaseModel):
     description: str | None
     context: str | None = None
     problems: list[str] = []
-    stakeholders: list[str] = []
-    business_goals: list[str] = []
-    business_flows: list[str] = []
-    business_rules: list[str] = []
     proposed_solutions: list[str] = []
     created_at: datetime

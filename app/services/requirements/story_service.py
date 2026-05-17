@@ -60,6 +60,7 @@ class StoryService:
             priority=body.priority,
             labels=body.labels,
             story_points=body.story_points,
+            business_value=body.business_value,
         )
         self.db.add(story)
         await self.db.flush()
@@ -116,6 +117,8 @@ class StoryService:
             story.labels = body.labels
         if body.story_points is not None:
             story.story_points = body.story_points
+        if body.business_value is not None:
+            story.business_value = body.business_value
         if body.acceptance_criteria is not None:
             for ac in story.acceptance_criteria:
                 await self.db.delete(ac)

@@ -20,7 +20,7 @@ from app.models.requirements import (
     Task,
 )
 from app.models.user import User
-from app.schemas.requirements import CloseRequest, EpicCreateRequest, EpicUpdateRequest
+from app.schemas.requirements import CloseRequest, EpicCreateRequest, EpicResponse, EpicUpdateRequest
 from app.schemas.requirement_model import RequirementModelResponse
 from app.services.requirements.helpers import check_epic_title_excludes_actors, _next_epic_prefix
 
@@ -29,9 +29,33 @@ class EpicService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def _to_response(self, epic: Epic) -> EpicResponse:
+        resp = EpicResponse.model_validate(epic)
+        features = epic.features if epic.features is not None else []
+        feature_story_points = [sum(s.story_points or 0 for s in f.stories) for f in features]
+        feature_business_values = [sum(s.business_value or 0 for s in f.stories) for f in features]
+        feature_story_counts = [len(f.stories) for f in features]
+        return resp.model_copy(update={
+            "total_story_points": sum(feature_story_points),
+            "total_business_value": sum(feature_business_values),
+            "feature_count": len(features),
+            "story_count": sum(feature_story_counts),
+        })
+
+    async def _load_epic(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> Epic:
+        result = await self.db.execute(
+            select(Epic)
+            .where(Epic.id == epic_id, Epic.project_id == project_id)
+            .options(selectinload(Epic.features).selectinload(Feature.stories))
+        )
+        epic = result.scalar_one_or_none()
+        if not epic:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
+        return epic
+
     async def create(
         self, project_id: uuid.UUID, body: EpicCreateRequest, user: User, actor_id: uuid.UUID | None = None
-    ) -> Epic:
+    ) -> EpicResponse:
         await check_epic_title_excludes_actors(project_id, body.title, self.db)
         prefix = await _next_epic_prefix(project_id, self.db)
         epic = Epic(
@@ -45,25 +69,23 @@ class EpicService:
         )
         self.db.add(epic)
         await self.db.flush()
-        return epic
+        # new epic has no features yet — rollup is 0
+        return EpicResponse.model_validate(epic)
 
-    async def list(self, project_id: uuid.UUID) -> list[Epic]:
+    async def list(self, project_id: uuid.UUID) -> list[EpicResponse]:
         result = await self.db.execute(
-            select(Epic).where(Epic.project_id == project_id).order_by(Epic.prefix)
+            select(Epic)
+            .where(Epic.project_id == project_id)
+            .options(selectinload(Epic.features).selectinload(Feature.stories))
+            .order_by(Epic.prefix)
         )
-        return list(result.scalars().all())
+        return [self._to_response(e) for e in result.scalars().all()]
 
-    async def get(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> Epic:
-        result = await self.db.execute(
-            select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id)
-        )
-        epic = result.scalar_one_or_none()
-        if not epic:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
-        return epic
+    async def get(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> EpicResponse:
+        return self._to_response(await self._load_epic(project_id, epic_id))
 
-    async def update(self, project_id: uuid.UUID, epic_id: uuid.UUID, body: EpicUpdateRequest) -> Epic:
-        epic = await self.get(project_id, epic_id)
+    async def update(self, project_id: uuid.UUID, epic_id: uuid.UUID, body: EpicUpdateRequest) -> EpicResponse:
+        epic = await self._load_epic(project_id, epic_id)
         if body.title is not None:
             await check_epic_title_excludes_actors(project_id, body.title, self.db)
             epic.title = body.title
@@ -75,16 +97,26 @@ class EpicService:
             epic.priority = body.priority
         if body.labels is not None:
             epic.labels = body.labels
-        return epic
+        return self._to_response(epic)
 
     async def delete(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> None:
-        epic = await self.get(project_id, epic_id)
+        result = await self.db.execute(
+            select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id)
+        )
+        epic = result.scalar_one_or_none()
+        if not epic:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
         await self.db.delete(epic)
 
     async def close(
         self, project_id: uuid.UUID, epic_id: uuid.UUID, body: CloseRequest, user: User
     ) -> CloseReason:
-        epic = await self.get(project_id, epic_id)
+        result = await self.db.execute(
+            select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id)
+        )
+        epic = result.scalar_one_or_none()
+        if not epic:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy epic")
         if epic.status in TERMINAL_STATUSES:
             raise HTTPException(status.HTTP_409_CONFLICT, detail="Epic đã được đóng")
         epic.status = ItemStatus(body.reason.value)

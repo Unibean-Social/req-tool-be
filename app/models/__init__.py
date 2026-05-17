@@ -13,6 +13,9 @@ from app.models.requirements import (
     Task,
 )
 from app.models.sync import GithubItem, SyncLog, SyncQueue
+from app.models.stakeholder import Stakeholder
+from app.models.nfr import NFR
+from app.models.project_business import ProjectGoal, ProjectFlow, ProjectRule
 
 __all__ = [
     "Base",
@@ -31,4 +34,9 @@ __all__ = [
     "SyncQueue",
     "GithubItem",
     "SyncLog",
+    "Stakeholder",
+    "NFR",
+    "ProjectGoal",
+    "ProjectFlow",
+    "ProjectRule",
 ]

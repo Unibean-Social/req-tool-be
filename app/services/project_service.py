@@ -35,10 +35,6 @@ class ProjectService:
             description=body.description,
             context=body.context,
             problems=body.problems,
-            stakeholders=body.stakeholders,
-            business_goals=body.business_goals,
-            business_flows=body.business_flows,
-            business_rules=body.business_rules,
             proposed_solutions=body.proposed_solutions,
         )
         self.db.add(project)
@@ -70,14 +66,6 @@ class ProjectService:
             project.context = body.context
         if body.problems is not None:
             project.problems = body.problems
-        if body.stakeholders is not None:
-            project.stakeholders = body.stakeholders
-        if body.business_goals is not None:
-            project.business_goals = body.business_goals
-        if body.business_flows is not None:
-            project.business_flows = body.business_flows
-        if body.business_rules is not None:
-            project.business_rules = body.business_rules
         if body.proposed_solutions is not None:
             project.proposed_solutions = body.proposed_solutions
         return project
