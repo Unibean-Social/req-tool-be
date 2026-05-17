@@ -38,7 +38,7 @@ class SyncService:
         if not conn or not conn.access_token:
             raise HTTPException(
                 http_status.HTTP_409_CONFLICT,
-                detail="No GitHub connection — connect the project first",
+                detail="Chưa kết nối GitHub — vui lòng kết nối dự án trước",
             )
         return conn
 
@@ -68,14 +68,14 @@ class SyncService:
                 .where(Task.id == item_id, Epic.project_id == project_id)
             )
         else:
-            raise HTTPException(http_status.HTTP_400_BAD_REQUEST, detail=f"Unknown item_type: {item_type}")
+            raise HTTPException(http_status.HTTP_400_BAD_REQUEST, detail=f"Loại item không hợp lệ: {item_type}")
 
         result = await self.db.execute(q)
         item = result.scalar_one_or_none()
         if not item:
             raise HTTPException(
                 http_status.HTTP_404_NOT_FOUND,
-                detail=f"{item_type} {item_id} not found in project",
+                detail=f"Không tìm thấy {item_type} {item_id} trong dự án",
             )
         return item
 
@@ -151,7 +151,7 @@ class SyncService:
         )
         row = result.scalar_one_or_none()
         if not row:
-            raise HTTPException(http_status.HTTP_404_NOT_FOUND, detail="Queue entry not found")
+            raise HTTPException(http_status.HTTP_404_NOT_FOUND, detail="Không tìm thấy mục trong hàng đợi")
         await self.db.delete(row)
         await self.db.flush()
 
@@ -242,7 +242,7 @@ class SyncService:
         missing_cats = [p for p in ("type:", "status:", "priority:") if not any(l.startswith(p) for l in labels)]
         if missing_cats:
             row.status = SyncQueueStatus.failed
-            msg = f"Missing label categories: {', '.join(missing_cats)}"
+            msg = f"Thiếu nhãn thuộc nhóm: {', '.join(missing_cats)}"
             self.db.add(SyncLog(
                 project_id=row.project_id,
                 sync_queue_id=row.id,
@@ -274,7 +274,7 @@ class SyncService:
                 )
                 if not gi.scalar_one_or_none():
                     row.status = SyncQueueStatus.failed
-                    msg = f"Parent {p_type} has no GitHub issue — push parent first"
+                    msg = f"{p_type} cha chưa có issue trên GitHub — hãy push {p_type} cha trước"
                     self.db.add(SyncLog(
                         project_id=row.project_id,
                         sync_queue_id=row.id,
@@ -400,7 +400,7 @@ class SyncService:
         labels = snapshot.get("github_labels") or []
         missing_cats = [p for p in ("type:", "status:", "priority:") if not any(l.startswith(p) for l in labels)]
         if missing_cats:
-            msg = f"Missing label categories: {', '.join(missing_cats)}"
+            msg = f"Thiếu nhãn thuộc nhóm: {', '.join(missing_cats)}"
             self.db.add(SyncLog(
                 project_id=row.project_id,
                 sync_queue_id=None,
@@ -431,7 +431,7 @@ class SyncService:
                     )
                 )
                 if not gi.scalar_one_or_none():
-                    msg = f"Parent {p_type} has no GitHub issue — push parent first"
+                    msg = f"{p_type} cha chưa có issue trên GitHub — hãy push {p_type} cha trước"
                     self.db.add(SyncLog(
                         project_id=row.project_id,
                         sync_queue_id=None,

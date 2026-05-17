@@ -12,7 +12,7 @@
   },
   "privacyBlock": {
     "enabled": true,
-    "allowList": [".env", ".env.example"]
+    "allowList": [".env.example"]
   },
   "simplify": {
     "threshold": {

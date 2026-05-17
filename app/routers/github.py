@@ -16,7 +16,6 @@ from app.models.user import User
 from app.schemas.github import (
     BootstrapReport,
     ConnectInitResponse,
-    GithubConnectRequest,
     GithubConnectionStatusResponse,
     GithubSelectRepoRequest,
     ImportConfirmRequest,
@@ -30,7 +29,7 @@ router = APIRouter(tags=["github"])
 
 _CONNECT_COOKIE = "gh_connect_nonce"
 _COOKIE_MAX_AGE = 600
-_GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+_GITHUB_APP_INSTALL_URL = "https://github.com/apps/{slug}/installations/new"
 
 
 def _state_hmac_key() -> bytes:
@@ -65,7 +64,7 @@ def _verify_connect_state(state: str, cookie_nonce: str) -> tuple[uuid.UUID, uui
 @router.post(
     "/projects/{project_id}/github/connect/init",
     response_model=ApiResponse[ConnectInitResponse],
-    summary="Get GitHub OAuth URL for repo connection (use with window.open)",
+    summary="Get GitHub App install URL for repo connection",
 )
 async def github_connect_init(
     project_id: uuid.UUID,
@@ -76,13 +75,8 @@ async def github_connect_init(
     await require_project_access(project_id, user, service.db)
     nonce = os.urandom(16).hex()
     state = _make_connect_state(project_id, user.id, nonce)
-    params = {
-        "client_id": settings.github_client_id,
-        "redirect_uri": settings.github_repo_connect_redirect_uri,
-        "scope": "repo",
-        "state": state,
-    }
-    redirect_url = f"{_GITHUB_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+    install_url = _GITHUB_APP_INSTALL_URL.format(slug=settings.github_app_slug)
+    redirect_url = f"{install_url}?state={urllib.parse.quote(state)}"
     response.set_cookie(
         _CONNECT_COOKIE,
         nonce,
@@ -94,54 +88,36 @@ async def github_connect_init(
     return ok(ConnectInitResponse(redirect_url=redirect_url))
 
 
-@router.get("/github/connect/callback", summary="GitHub OAuth callback for repo connection")
+@router.get("/github/connect/callback", summary="GitHub App installation callback")
 async def github_connect_callback(
-    code: str,
+    installation_id: str,
     state: str,
     response: Response,
+    setup_action: str = "install",
     service: GithubService = Depends(get_github_service),
     gh_connect_nonce: str | None = Cookie(default=None, alias=_CONNECT_COOKIE),
 ):
     if not gh_connect_nonce:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Missing OAuth nonce cookie")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Thiếu cookie xác thực kết nối")
     ids = _verify_connect_state(state, gh_connect_nonce)
     if not ids:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — possible CSRF")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="State không hợp lệ — có thể là tấn công CSRF")
 
     project_id, user_id = ids
     _secure = settings.app_env != "development"
     response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
 
+    if setup_action not in ("install", "update"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"setup_action không hợp lệ: {setup_action}")
+
     user_result = await service.db.execute(select(User).where(User.id == user_id))
     user_obj = user_result.scalar_one_or_none()
     if not user_obj:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy người dùng")
     await require_project_access(project_id, user_obj, service.db)
 
-    await service.complete_oauth_connect(code, project_id)
-    return ok({"message": "GitHub connected — call POST /github/connect to set repo owner/name"})
-
-
-@router.post(
-    "/projects/{project_id}/github/connect",
-    response_model=ApiResponse[GithubConnectionStatusResponse],
-    status_code=status.HTTP_201_CREATED,
-    summary="Connect project to a GitHub repo via PAT",
-)
-async def github_connect_pat(
-    project_id: uuid.UUID,
-    body: GithubConnectRequest,
-    user: User = Depends(current_user),
-    service: GithubService = Depends(get_github_service),
-):
-    await require_project_access(project_id, user, service.db)
-    conn = await service.connect_pat(project_id, body)
-    return created(GithubConnectionStatusResponse(
-        connected=True,
-        repo_owner=conn.repo_owner,
-        repo_name=conn.repo_name,
-        bootstrap_status=conn.bootstrap_status,
-    ))
+    await service.complete_app_connect(installation_id, project_id)
+    return ok({"message": "Đã kết nối GitHub App — gọi PATCH /github/connect để thiết lập tên owner/repo"})
 
 
 @router.patch(

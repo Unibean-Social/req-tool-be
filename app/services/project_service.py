@@ -24,7 +24,7 @@ class ProjectService:
             )).scalar_one_or_none():
                 return slug
             slug = f"{base}-{secrets.token_hex(3)}"
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate unique slug")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Không thể tạo slug duy nhất")
 
     async def create(self, org_id: uuid.UUID, body: ProjectCreateRequest) -> Project:
         slug = await self._unique_slug(org_id, slugify(body.name, fallback="project"))
@@ -55,7 +55,7 @@ class ProjectService:
         )
         project = result.scalar_one_or_none()
         if not project:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy dự án")
         return project
 
     async def update(

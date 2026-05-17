@@ -76,7 +76,7 @@ async def github_callback(
     oauth_nonce: str | None = Cookie(default=None, alias=_COOKIE_NAME),
 ):
     if not oauth_nonce or not _verify_state(state, oauth_nonce):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state — possible CSRF attack")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="OAuth state không hợp lệ — có thể là tấn công CSRF")
 
     _secure = settings.app_env != "development"
     response.delete_cookie(_COOKIE_NAME, httponly=True, samesite="lax", secure=_secure)

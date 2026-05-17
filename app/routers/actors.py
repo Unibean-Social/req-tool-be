@@ -9,7 +9,7 @@ from app.deps import current_user, get_actor_service, get_epic_service
 from app.models.user import User
 from app.schemas.actor import ActorCreateRequest, ActorResponse, ActorUpdateRequest
 from app.schemas.requirement_model import RequirementModelResponse
-from app.schemas.requirements import CanvasLayoutRequest, EpicCreateRequest, EpicResponse
+from app.schemas.requirements import CanvasLayoutRequest, CanvasLayoutResponse, EpicCreateRequest, EpicResponse
 from app.schemas.response import ApiResponse
 from app.services.actor_service import ActorService
 from app.services.requirements.epic_service import EpicService
@@ -81,18 +81,33 @@ async def get_requirement_model(
     return ok(await epic_service.get_requirement_model(project_id, actor_id))
 
 
-@router.put("/{actor_id}/canvas-layout", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+@router.get(
+    "/{actor_id}/canvas-layout",
+    response_model=ApiResponse[CanvasLayoutResponse],
+)
+async def get_canvas_layout(
+    project_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ActorService = Depends(get_actor_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.get_canvas_layout(project_id, actor_id))
+
+
+@router.put(
+    "/{actor_id}/canvas-layout",
+    response_model=ApiResponse[CanvasLayoutResponse],
+)
 async def put_canvas_layout(
     project_id: uuid.UUID,
     actor_id: uuid.UUID,
     body: CanvasLayoutRequest,
     user: User = Depends(current_user),
-    actor_service: ActorService = Depends(get_actor_service),
+    service: ActorService = Depends(get_actor_service),
 ):
-    await require_project_access(project_id, user, actor_service.db)
-    # TODO: implement when canvas layout table is added
-    from fastapi import HTTPException
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="canvas layout persistence not yet implemented")
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.put_canvas_layout(project_id, actor_id, body))
 
 
 @router.patch("/{actor_id}", response_model=ApiResponse[ActorResponse])
