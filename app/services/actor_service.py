@@ -71,6 +71,6 @@ class ActorService:
         self, project_id: uuid.UUID, actor_id: uuid.UUID, body: CanvasLayoutRequest
     ) -> CanvasLayoutResponse:
         actor = await self.get(project_id, actor_id)
-        actor.canvas_layout = body.model_dump()
+        actor.canvas_layout = body.model_dump(mode="json")
         await self.db.flush()
         return CanvasLayoutResponse(nodes=body.nodes)
