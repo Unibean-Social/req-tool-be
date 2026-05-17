@@ -32,14 +32,15 @@ class EpicService:
     def _to_response(self, epic: Epic) -> EpicResponse:
         resp = EpicResponse.model_validate(epic)
         features = epic.features if epic.features is not None else []
-        feature_story_points = [sum(s.story_points or 0 for s in f.stories) for f in features]
-        feature_business_values = [sum(s.business_value or 0 for s in f.stories) for f in features]
-        feature_story_counts = [len(f.stories) for f in features]
+        open_stories_per_feature = [
+            [s for s in f.stories if s.status not in TERMINAL_STATUSES]
+            for f in features
+        ]
         return resp.model_copy(update={
-            "total_story_points": sum(feature_story_points),
-            "total_business_value": sum(feature_business_values),
+            "total_story_points": sum(s.story_points or 0 for stories in open_stories_per_feature for s in stories),
+            "total_business_value": sum(s.business_value or 0 for stories in open_stories_per_feature for s in stories),
             "feature_count": len(features),
-            "story_count": sum(feature_story_counts),
+            "story_count": sum(len(stories) for stories in open_stories_per_feature),
         })
 
     async def _load_epic(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> Epic:

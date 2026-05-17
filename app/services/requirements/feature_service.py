@@ -37,10 +37,11 @@ class FeatureService:
     def _to_response(self, feature: Feature) -> FeatureResponse:
         resp = FeatureResponse.model_validate(feature)
         stories = feature.stories if feature.stories is not None else []
+        open_stories = [s for s in stories if s.status not in TERMINAL_STATUSES]
         return resp.model_copy(update={
-            "total_story_points": sum(s.story_points or 0 for s in stories),
-            "total_business_value": sum(s.business_value or 0 for s in stories),
-            "story_count": len(stories),
+            "total_story_points": sum(s.story_points or 0 for s in open_stories),
+            "total_business_value": sum(s.business_value or 0 for s in open_stories),
+            "story_count": len(open_stories),
         })
 
     async def create(

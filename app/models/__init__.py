@@ -15,6 +15,7 @@ from app.models.requirements import (
 from app.models.sync import GithubItem, SyncLog, SyncQueue
 from app.models.stakeholder import Stakeholder
 from app.models.nfr import NFR, nfr_feature_links
+from app.models.story_estimate import StoryEstimate
 from app.models.project_business import ProjectGoal, ProjectFlow, ProjectRule
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "Stakeholder",
     "NFR",
     "nfr_feature_links",
+    "StoryEstimate",
     "ProjectGoal",
     "ProjectFlow",
     "ProjectRule",

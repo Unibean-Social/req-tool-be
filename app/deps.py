@@ -19,6 +19,7 @@ from app.services.actor_service import ActorService
 from app.services.stakeholder_service import StakeholderService
 from app.services.nfr_service import NFRService
 from app.services.project_business_service import ProjectBusinessService
+from app.services.estimate_service import EstimateService
 
 bearer = HTTPBearer()
 
@@ -100,3 +101,7 @@ def get_nfr_service(db: AsyncSession = Depends(get_db)) -> NFRService:
 
 def get_project_business_service(db: AsyncSession = Depends(get_db)) -> ProjectBusinessService:
     return ProjectBusinessService(db)
+
+
+def get_estimate_service(db: AsyncSession = Depends(get_db)) -> EstimateService:
+    return EstimateService(db)
