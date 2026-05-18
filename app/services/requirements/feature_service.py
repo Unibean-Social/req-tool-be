@@ -68,9 +68,9 @@ class FeatureService:
         )
         self.db.add(feature)
         await self.db.flush()
-        feature.stories = []
+        feature_id = feature.id
         _update_parent_references(epic, feature.prefix, "add")
-        return self._to_response(feature)
+        return self._to_response(await self._get_feature(project_id, feature_id))
 
     async def list(
         self,
