@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -20,6 +21,9 @@ from app.models.requirements import (
 from app.models.user import User
 from app.schemas.requirements import CloseRequest, StoryBuilderRequest, StoryCreateRequest, StoryUpdateRequest
 from app.services.requirements.helpers import _next_story_prefix, _update_parent_references
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 
 
 class StoryService:
@@ -139,7 +143,12 @@ class StoryService:
         await self.db.delete(story)
 
     async def close(
-        self, project_id: uuid.UUID, story_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        story_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         story = await self._get_story(project_id, story_id)
         if story.status in TERMINAL_STATUSES:
@@ -154,6 +163,10 @@ class StoryService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.story, story.id, body.reason.value, body.comment
+            )
         return close
 
     async def build(self, project_id: uuid.UUID, body: StoryBuilderRequest) -> Story:

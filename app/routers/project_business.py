@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
 from app.database import get_db
-from app.deps import current_user, get_project_business_service
+from app.deps import current_user, get_project_business_service, get_staleness_service
+from app.schemas.staleness import StalenessWarningItem
+from app.services.staleness_service import StalenessService
 from app.models.actor import Actor
 from app.models.nfr import NFR
 from app.models.project_business import ProjectFlow, ProjectGoal, ProjectRule
@@ -209,3 +211,13 @@ async def get_setup_progress(
         "nfrs": has_nfrs,
         "requirements": has_requirements,
     })
+
+
+@router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]])
+async def get_staleness_warnings(
+    project_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: StalenessService = Depends(get_staleness_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.get_stale_items(project_id))

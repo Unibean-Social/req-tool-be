@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -23,6 +24,9 @@ from app.models.user import User
 from app.schemas.requirements import CloseRequest, EpicCreateRequest, EpicResponse, EpicUpdateRequest
 from app.schemas.requirement_model import RequirementModelResponse
 from app.services.requirements.helpers import check_epic_title_excludes_actors, _next_epic_prefix
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 
 
 class EpicService:
@@ -110,7 +114,12 @@ class EpicService:
         await self.db.delete(epic)
 
     async def close(
-        self, project_id: uuid.UUID, epic_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        epic_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         result = await self.db.execute(
             select(Epic).where(Epic.id == epic_id, Epic.project_id == project_id)
@@ -130,6 +139,10 @@ class EpicService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.epic, epic.id, body.reason.value, body.comment
+            )
         return close
 
     async def get_tree(self, project_id: uuid.UUID) -> list[Epic]:

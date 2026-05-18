@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,8 +18,10 @@ from app.core.github_client import (
     GithubClient,
 )
 from app.models.github_connection import GithubConnection
-from app.models.requirements import AcceptanceCriteria, Epic, Feature, Story, Task
+from app.models.requirements import AcceptanceCriteria, Epic, Feature, ItemType, Story, Task
 from app.models.project import Project
+from app.models.sync import GithubItem
+
 from app.schemas.github import (
     BootstrapReport,
     BootstrapResourceResult,
@@ -30,7 +33,15 @@ from app.schemas.github import (
     ImportedItem,
 )
 
+_logger = logging.getLogger(__name__)
 _TYPE_ORDER = {"epic": 0, "feature": 1, "story": 2, "task": 3}
+_CLOSE_MESSAGES: dict[str, str] = {
+    "done": "Completed. Acceptance criteria verified.",
+    "rejected": "Rejected: out of scope.",
+    "duplicate": "Duplicate. Closing this one.",
+    "wont_fix": "Won't implement.",
+    "deferred": "Deferred to a later sprint.",
+}
 _GITHUB_APP_API = "https://api.github.com"
 
 
@@ -243,6 +254,44 @@ class GithubService:
             else:
                 preview.unclassified.append(item)
         return preview
+
+    async def post_close_comment(
+        self,
+        project_id: uuid.UUID,
+        item_type: ItemType,
+        item_id: uuid.UUID,
+        reason: str,
+        comment: str,
+    ) -> None:
+        try:
+            result = await self.db.execute(
+                select(GithubItem).where(
+                    GithubItem.item_type == item_type,
+                    GithubItem.item_id == item_id,
+                )
+            )
+            gi = result.scalar_one_or_none()
+            if not gi:
+                return
+
+            conn = await self._require_connection(project_id)
+            gh = await self._get_client(conn.installation_id)
+
+            text = _CLOSE_MESSAGES.get(reason, "Closed.")
+            if comment.strip():
+                text = f"{text} — {comment}"
+
+            await gh.post(
+                f"/repos/{conn.repo_owner}/{conn.repo_name}/issues/{gi.github_issue_number}/comments",
+                json={"body": text},
+            )
+        except HTTPException:
+            # No GitHub connection configured or App not installed — skip silently
+            return
+        except Exception:
+            _logger.warning(
+                "Failed to post close comment for %s %s", item_type, item_id, exc_info=True
+            )
 
     async def import_confirm(
         self, project_id: uuid.UUID, body: ImportConfirmRequest

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.deps import current_user, get_story_service
+from app.deps import current_user, get_github_service, get_story_service
 from app.models.requirements import ItemStatus
 from app.models.user import User
 from app.schemas.requirements import (
@@ -15,6 +15,7 @@ from app.schemas.requirements import (
     StoryUpdateRequest,
 )
 from app.schemas.response import ApiResponse
+from app.services.github_service import GithubService
 from app.services.requirements.story_service import StoryService
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["stories"])
@@ -75,9 +76,10 @@ async def close_story(
     body: CloseRequest,
     user: User = Depends(current_user),
     service: StoryService = Depends(get_story_service),
+    github_service: GithubService = Depends(get_github_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.close(project_id, user_story_id, body, user))
+    return ok(await service.close(project_id, user_story_id, body, user, github_service=github_service))
 
 
 @router.post("/story-builder", response_model=ApiResponse[StoryResponse], status_code=status.HTTP_201_CREATED)

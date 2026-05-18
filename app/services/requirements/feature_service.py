@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -9,6 +10,9 @@ from sqlalchemy.orm import selectinload
 
 from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType, Story
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 from app.schemas.requirements import (
     CloseRequest,
     FeatureCreateRequest,
@@ -116,7 +120,12 @@ class FeatureService:
         await self.db.delete(feature)
 
     async def close(
-        self, project_id: uuid.UUID, feature_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        feature_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         feature = await self._get_feature(project_id, feature_id)
         if feature.status in TERMINAL_STATUSES:
@@ -131,4 +140,8 @@ class FeatureService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.feature, feature.id, body.reason.value, body.comment
+            )
         return close
