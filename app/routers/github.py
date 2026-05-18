@@ -1,18 +1,20 @@
-import hashlib
-import hmac
 import os
 import urllib.parse
 import uuid
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Response, status
 
 from app.config import settings
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
 from app.deps import current_user, get_github_service
 from app.models.user import User
+from app.routers.github_auth import (
+    GITHUB_AUTHORIZE_URL,
+    _CONNECT_COOKIE,
+    _COOKIE_MAX_AGE,
+    make_connect_state,
+)
 from app.schemas.github import (
     BootstrapReport,
     ConnectInitResponse,
@@ -27,44 +29,11 @@ from app.services.github_service import GithubService
 
 router = APIRouter(tags=["github"])
 
-_CONNECT_COOKIE = "gh_connect_nonce"
-_COOKIE_MAX_AGE = 600
-_GITHUB_APP_INSTALL_URL = "https://github.com/apps/{slug}/installations/new"
-
-
-def _state_hmac_key() -> bytes:
-    if settings.github_state_secret:
-        return settings.github_state_secret.encode()
-    return (settings.jwt_secret_key + ":github-oauth-csrf").encode()
-
-
-def _make_connect_state(project_id: uuid.UUID, user_id: uuid.UUID, nonce: str) -> str:
-    payload = f"{project_id}:{user_id}:{nonce}"
-    sig = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
-    return f"{payload}.{sig}"
-
-
-def _verify_connect_state(state: str, cookie_nonce: str) -> tuple[uuid.UUID, uuid.UUID] | None:
-    try:
-        payload, sig = state.rsplit(".", 1)
-        project_id_str, user_id_str, nonce = payload.split(":", 2)
-    except ValueError:
-        return None
-    expected = hmac.new(_state_hmac_key(), payload.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, sig):
-        return None
-    if not hmac.compare_digest(nonce, cookie_nonce):
-        return None
-    try:
-        return uuid.UUID(project_id_str), uuid.UUID(user_id_str)
-    except ValueError:
-        return None
-
 
 @router.post(
     "/projects/{project_id}/github/connect/init",
     response_model=ApiResponse[ConnectInitResponse],
-    summary="Get GitHub App install URL for repo connection",
+    summary="Get GitHub OAuth authorize URL for repo connection",
 )
 async def github_connect_init(
     project_id: uuid.UUID,
@@ -74,9 +43,14 @@ async def github_connect_init(
 ):
     await require_project_access(project_id, user, service.db)
     nonce = os.urandom(16).hex()
-    state = _make_connect_state(project_id, user.id, nonce)
-    install_url = _GITHUB_APP_INSTALL_URL.format(slug=settings.github_app_slug)
-    redirect_url = f"{install_url}?state={urllib.parse.quote(state)}"
+    state = make_connect_state(project_id, user.id, nonce)
+    params = {
+        "client_id": settings.github_client_id,
+        "redirect_uri": settings.github_redirect_uri,
+        "scope": "repo",
+        "state": state,
+    }
+    redirect_url = f"{GITHUB_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
     response.set_cookie(
         _CONNECT_COOKIE,
         nonce,
@@ -86,38 +60,6 @@ async def github_connect_init(
         samesite="lax",
     )
     return ok(ConnectInitResponse(redirect_url=redirect_url))
-
-
-@router.get("/github/connect/callback", summary="GitHub App installation callback")
-async def github_connect_callback(
-    installation_id: str,
-    state: str,
-    response: Response,
-    setup_action: str = "install",
-    service: GithubService = Depends(get_github_service),
-    gh_connect_nonce: str | None = Cookie(default=None, alias=_CONNECT_COOKIE),
-):
-    if not gh_connect_nonce:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Thiếu cookie xác thực kết nối")
-    ids = _verify_connect_state(state, gh_connect_nonce)
-    if not ids:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="State không hợp lệ — có thể là tấn công CSRF")
-
-    project_id, user_id = ids
-    _secure = settings.app_env != "development"
-    response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
-
-    if setup_action not in ("install", "update"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"setup_action không hợp lệ: {setup_action}")
-
-    user_result = await service.db.execute(select(User).where(User.id == user_id))
-    user_obj = user_result.scalar_one_or_none()
-    if not user_obj:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Không tìm thấy người dùng")
-    await require_project_access(project_id, user_obj, service.db)
-
-    await service.complete_app_connect(installation_id, project_id)
-    return ok({"message": "Đã kết nối GitHub App — gọi PATCH /github/connect để thiết lập tên owner/repo"})
 
 
 @router.patch(
