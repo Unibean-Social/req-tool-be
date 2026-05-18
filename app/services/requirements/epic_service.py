@@ -102,6 +102,7 @@ class EpicService:
             epic.priority = body.priority
         if body.labels is not None:
             epic.labels = body.labels
+        await self.db.flush()
         return self._to_response(epic)
 
     async def delete(self, project_id: uuid.UUID, epic_id: uuid.UUID) -> None:

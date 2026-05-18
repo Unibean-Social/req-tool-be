@@ -111,6 +111,7 @@ class FeatureService:
             feature.priority = body.priority
         if body.labels is not None:
             feature.labels = body.labels
+        await self.db.flush()
         return self._to_response(feature)
 
     async def delete(self, project_id: uuid.UUID, feature_id: uuid.UUID) -> None:

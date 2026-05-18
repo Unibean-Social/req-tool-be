@@ -103,6 +103,7 @@ class StoryService:
         self, project_id: uuid.UUID, story_id: uuid.UUID, body: StoryUpdateRequest
     ) -> Story:
         story = await self._get_story(project_id, story_id)
+        story_id = story.id
         if body.title is not None:
             story.title = body.title
         if body.description is not None:
@@ -126,14 +127,14 @@ class StoryService:
         if body.acceptance_criteria is not None:
             for ac in story.acceptance_criteria:
                 await self.db.delete(ac)
-            await self.db.flush()
             for i, ac in enumerate(body.acceptance_criteria):
                 self.db.add(AcceptanceCriteria(
-                    story_id=story.id,
+                    story_id=story_id,
                     description=ac.description,
                     order=ac.order if ac.order else i,
                 ))
-        return story
+        await self.db.flush()
+        return await self._get_story(project_id, story_id)
 
     async def delete(self, project_id: uuid.UUID, story_id: uuid.UUID) -> None:
         story = await self._get_story(project_id, story_id)
