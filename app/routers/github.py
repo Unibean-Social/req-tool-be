@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import urllib.parse
@@ -79,7 +80,7 @@ async def github_app_setup(
         return HTMLResponse(f"""<!doctype html><html><body><script>
 window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
 window.close();
-</script><p>Lỗi: {error}</p></body></html>""")
+</script><p>Lỗi: {html.escape(error)}</p></body></html>""")
 
     if setup_action == "delete":
         return _err("installation_deleted", "GitHub App đã bị gỡ cài đặt")

@@ -123,8 +123,8 @@ async def create_story(client, h: dict, pid: str, feature_id: str, suffix: str =
 
 async def create_task(client, h: dict, pid: str, story_id: str, title: str = "Task") -> dict:
     r = await client.post(
-        f"{BASE}/projects/{pid}/stories/{story_id}/tasks",
-        json={"title": title, "labels": []},
+        f"{BASE}/projects/{pid}/tasks",
+        json={"title": title, "story_id": story_id, "labels": []},
         headers=h,
     )
     assert r.status_code == 201, r.text

@@ -114,6 +114,7 @@ class TaskService:
             task.category = body.category
         if body.estimated_hours is not None:
             task.estimated_hours = body.estimated_hours
+        await self.db.flush()
         return task
 
     async def delete(self, project_id: uuid.UUID, task_id: uuid.UUID) -> None:

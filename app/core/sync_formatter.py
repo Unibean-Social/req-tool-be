@@ -31,8 +31,16 @@ def format_epic(epic: "Epic") -> dict[str, Any]:
     }
 
 
+def _nfrs_section(nfrs: list) -> str:
+    if not nfrs:
+        return ""
+    lines = "\n".join(f"- **[{n.category.value}]** {n.description}" for n in nfrs)
+    return f"\n\n### Non-Functional Requirements\n{lines}"
+
+
 def format_feature(feature: "Feature") -> dict[str, Any]:
     refs = feature.references or []
+    nfrs = feature.nfrs if feature.nfrs is not None else []
     body = (
         f"### Summary\n"
         f"**Prefix:** {feature.prefix}  \n"
@@ -40,8 +48,8 @@ def format_feature(feature: "Feature") -> dict[str, Any]:
         f"### Information\n"
         f"**Description:** {feature.description or '_No description_'}  \n"
         f"**Status:** {feature.status.value}  \n"
-        f"**Priority:** {feature.priority.value}  \n"
-        f"**NFR Note:** {feature.nfr_note or '_None_'}"
+        f"**Priority:** {feature.priority.value}"
+        f"{_nfrs_section(nfrs)}"
         f"{_references_section(refs)}"
     )
     return {

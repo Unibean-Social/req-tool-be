@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import html
 import json
 import os
 import urllib.parse
@@ -85,7 +86,7 @@ def _error_html(target_origin: str, error: str, description: str | None = None) 
     return f"""<!doctype html><html><body><script>
 window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
 window.close();
-</script><p>Lỗi xác thực: {error}</p></body></html>"""
+</script><p>Lỗi xác thực: {html.escape(error)}</p></body></html>"""
 
 
 # --- Endpoints ---

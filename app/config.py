@@ -59,6 +59,8 @@ class Settings(BaseSettings):
                 raise ValueError("GITHUB_STATE_SECRET must be set in non-development environments")
             if not self.cors_origins:
                 raise ValueError("CORS_ORIGINS must be non-empty in non-development environments")
+            if not self.github_app_id or not self.github_app_private_key or not self.github_app_slug:
+                raise ValueError("GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_SLUG must be set in non-development environments")
         return self
 
 

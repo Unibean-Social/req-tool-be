@@ -46,7 +46,7 @@ async def get_story(
     return ok(await service.get(project_id, user_story_id))
 
 
-@router.patch("/user-stories/{user_story_id}", response_model=ApiResponse[StoryResponse])
+@router.patch("/stories/{user_story_id}", response_model=ApiResponse[StoryResponse])
 async def update_story(
     project_id: uuid.UUID,
     user_story_id: uuid.UUID,
@@ -58,7 +58,7 @@ async def update_story(
     return ok(await service.update(project_id, user_story_id, body))
 
 
-@router.delete("/user-stories/{user_story_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/stories/{user_story_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_story(
     project_id: uuid.UUID,
     user_story_id: uuid.UUID,
@@ -69,7 +69,7 @@ async def delete_story(
     await service.delete(project_id, user_story_id)
 
 
-@router.patch("/user-stories/{user_story_id}/close", response_model=ApiResponse[CloseReasonResponse])
+@router.patch("/stories/{user_story_id}/close", response_model=ApiResponse[CloseReasonResponse])
 async def close_story(
     project_id: uuid.UUID,
     user_story_id: uuid.UUID,

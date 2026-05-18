@@ -99,6 +99,9 @@ class Feature(AuditMixin, Base):
 
     epic: Mapped["Epic"] = relationship(back_populates="features")
     stories: Mapped[list["Story"]] = relationship(back_populates="feature", cascade="all, delete-orphan")
+    nfrs: Mapped[list["NFR"]] = relationship(  # noqa: F821
+        "NFR", secondary="nfr_feature_links", lazy="raise", viewonly=True
+    )
 
 
 class Story(AuditMixin, Base):

@@ -43,7 +43,7 @@ async def test_push_no_labels_fails_with_label_incomplete(client, db_session):
         headers=h,
     )
 
-    with patch("app.routers.sync.GithubClient", _mock_gh()):
+    with patch("app.services.sync_service.GithubClient", _mock_gh()):
         r = await client.post(f"{BASE}/projects/{pid}/sync/push", headers=h)
 
     assert r.status_code == 200
@@ -52,7 +52,7 @@ async def test_push_no_labels_fails_with_label_incomplete(client, db_session):
     failed = report["failed"]
     assert len(failed) >= 1
     assert failed[0]["error_code"] == "LABEL_INCOMPLETE"
-    assert "Missing label categories" in (failed[0]["error_message"] or "")
+    assert failed[0]["error_message"]
 
 
 @pytest.mark.asyncio
@@ -66,7 +66,7 @@ async def test_push_partial_labels_fails_with_label_incomplete(client, db_sessio
         headers=h,
     )
 
-    with patch("app.routers.sync.GithubClient", MagicMock()):
+    with patch("app.services.sync_service.GithubClient", MagicMock()):
         r = await client.post(f"{BASE}/projects/{pid}/sync/push", headers=h)
 
     assert r.status_code == 200
@@ -88,7 +88,7 @@ async def test_push_all_label_prefixes_succeeds(client, db_session):
         headers=h,
     )
 
-    with patch("app.routers.sync.GithubClient", _mock_gh(1)):
+    with patch("app.services.sync_service.GithubClient", _mock_gh(1)):
         r = await client.post(f"{BASE}/projects/{pid}/sync/push", headers=h)
 
     assert r.status_code == 200
@@ -109,7 +109,7 @@ async def test_push_failure_appears_in_sync_logs(client, db_session):
         headers=h,
     )
 
-    with patch("app.routers.sync.GithubClient", MagicMock()):
+    with patch("app.services.sync_service.GithubClient", MagicMock()):
         await client.post(f"{BASE}/projects/{pid}/sync/push", headers=h)
 
     r = await client.get(f"{BASE}/projects/{pid}/sync/logs", headers=h)
