@@ -8,17 +8,14 @@ import uuid
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
 
 from app.config import settings
-from app.core.guards import require_project_access
 from app.core.responses import ok
-from app.deps import current_user, get_auth_service, get_github_service
+from app.deps import current_user, get_auth_service
 from app.models.user import User
 from app.schemas.auth import RefreshRequest, TokenResponse
 from app.schemas.response import ApiResponse
 from app.services.auth_service import AuthService
-from app.services.github_service import GithubService
 
 router = APIRouter(prefix="/auth/github", tags=["auth"])
 
@@ -123,9 +120,7 @@ async def github_callback(
     error: str | None = None,
     error_description: str | None = None,
     auth_service: AuthService = Depends(get_auth_service),
-    github_service: GithubService = Depends(get_github_service),
     oauth_nonce: str | None = Cookie(default=None, alias=_LOGIN_COOKIE),
-    gh_connect_nonce: str | None = Cookie(default=None, alias=_CONNECT_COOKIE),
 ):
     target_origin = settings.cors_origins[0] if settings.cors_origins else "*"
     _secure = settings.app_env != "development"
@@ -136,55 +131,21 @@ async def github_callback(
     if not code:
         return HTMLResponse(_error_html(target_origin, "missing_code", "GitHub không trả về authorization code"))
 
-    if is_connect_state(state):
-        # --- Repo connect flow ---
-        if not gh_connect_nonce:
-            return HTMLResponse(_error_html(target_origin, "missing_cookie", "Thiếu cookie xác thực kết nối"))
-        response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
-        response.delete_cookie(_LOGIN_COOKIE, httponly=True, samesite="lax", secure=_secure)
-        ids = verify_connect_state(state, gh_connect_nonce)
-        if not ids:
-            return HTMLResponse(_error_html(target_origin, "invalid_state", "State không hợp lệ — có thể là tấn công CSRF"))
-        project_id, user_id = ids
+    if not oauth_nonce or not _verify_login_state(state, oauth_nonce):
+        return HTMLResponse(_error_html(target_origin, "invalid_state", "OAuth state không hợp lệ — có thể là tấn công CSRF"))
+    response.delete_cookie(_LOGIN_COOKIE, httponly=True, samesite="lax", secure=_secure)
 
-        # Verify user + project access
-        user_result = await github_service.db.execute(select(User).where(User.id == user_id))
-        user_obj = user_result.scalar_one_or_none()
-        if not user_obj:
-            return HTMLResponse(_error_html(target_origin, "unauthorized", "Không tìm thấy người dùng"))
-        try:
-            await require_project_access(project_id, user_obj, github_service.db)
-        except HTTPException:
-            return HTMLResponse(_error_html(target_origin, "forbidden", "Không có quyền truy cập project"))
+    try:
+        access_token, refresh_token = await auth_service.process_github_callback(code)
+    except HTTPException as exc:
+        return HTMLResponse(_error_html(target_origin, "auth_failed", exc.detail))
 
-        try:
-            await github_service.complete_oauth_connect(code, project_id, user_id)
-        except HTTPException as exc:
-            return HTMLResponse(_error_html(target_origin, "connect_failed", exc.detail))
-
-        payload = json.dumps({"type": "github_connect", "project_id": str(project_id)})
-        return HTMLResponse(f"""<!doctype html><html><body><script>
-window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
-window.close();
-</script><p>Đang đóng cửa sổ...</p></body></html>""")
-
-    else:
-        # --- Login flow ---
-        if not oauth_nonce or not _verify_login_state(state, oauth_nonce):
-            return HTMLResponse(_error_html(target_origin, "invalid_state", "OAuth state không hợp lệ — có thể là tấn công CSRF"))
-        response.delete_cookie(_LOGIN_COOKIE, httponly=True, samesite="lax", secure=_secure)
-
-        try:
-            access_token, refresh_token = await auth_service.process_github_callback(code)
-        except HTTPException as exc:
-            return HTMLResponse(_error_html(target_origin, "auth_failed", exc.detail))
-
-        payload = json.dumps({
-            "type": "github_oauth",
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-        })
-        return HTMLResponse(f"""<!doctype html><html><body><script>
+    payload = json.dumps({
+        "type": "github_oauth",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    })
+    return HTMLResponse(f"""<!doctype html><html><body><script>
 window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
 window.close();
 </script><p>Đang đóng cửa sổ...</p></body></html>""")

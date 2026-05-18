@@ -1,16 +1,18 @@
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+import jwt as _pyjwt
 from fastapi import HTTPException, status
 from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.crypto import decrypt_token, encrypt_token
+from app.core.crypto import decrypt_token  # legacy: OAuth-connected projects still use access_token
 from app.core.github_client import (
     REQFLOW_LABELS,
     SPRINT_MILESTONE_TITLE,
@@ -34,6 +36,7 @@ from app.schemas.github import (
 
 _logger = logging.getLogger(__name__)
 _TYPE_ORDER = {"epic": 0, "feature": 1, "story": 2, "task": 3}
+_GITHUB_APP_INSTALLATIONS_URL = "https://api.github.com/app/installations"
 _CLOSE_MESSAGES: dict[str, str] = {
     "done": "Completed. Acceptance criteria verified.",
     "rejected": "Rejected: out of scope.",
@@ -41,29 +44,58 @@ _CLOSE_MESSAGES: dict[str, str] = {
     "wont_fix": "Won't implement.",
     "deferred": "Deferred to a later sprint.",
 }
-_GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-
-
 class GithubService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     # --- Connection management ---
 
+    def _make_app_jwt(self) -> str:
+        now = int(time.time())
+        private_key = settings.github_app_private_key.replace("\\n", "\n")
+        return _pyjwt.encode(
+            {"iat": now - 60, "exp": now + 540, "iss": settings.github_app_id},
+            private_key,
+            algorithm="RS256",
+        )
+
+    async def _generate_installation_token(self, installation_id: str) -> str:
+        app_jwt = self._make_app_jwt()
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    f"{_GITHUB_APP_INSTALLATIONS_URL}/{installation_id}/access_tokens",
+                    headers={
+                        "Authorization": f"Bearer {app_jwt}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                return resp.json()["token"]
+            except httpx.HTTPStatusError:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể tạo GitHub installation token")
+            except httpx.RequestError:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
+
     async def _require_connection(self, project_id: uuid.UUID) -> GithubConnection:
         result = await self.db.execute(
             select(GithubConnection).where(GithubConnection.project_id == project_id)
         )
         conn = result.scalar_one_or_none()
-        if not conn or not conn.access_token:
+        if not conn or (not conn.installation_id and not conn.access_token):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail="Chưa kết nối GitHub — vui lòng kết nối lại",
             )
         return conn
 
-    def _get_client(self, conn: GithubConnection) -> GithubClient:
-        token = decrypt_token(conn.access_token)
+    async def _get_client(self, conn: GithubConnection) -> GithubClient:
+        if conn.installation_id:
+            token = await self._generate_installation_token(conn.installation_id)
+        else:
+            token = decrypt_token(conn.access_token) if conn.access_token else None
         if not token:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -74,6 +106,7 @@ class GithubService:
     async def _handle_token_revoked(self, conn: GithubConnection, exc: HTTPException) -> None:
         if exc.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
             conn.access_token = None
+            conn.installation_id = None
             conn.bootstrap_status = "failed"
             await self.db.flush()
             raise HTTPException(
@@ -82,46 +115,15 @@ class GithubService:
             )
         raise exc
 
-    async def complete_oauth_connect(
-        self, code: str, project_id: uuid.UUID, user_id: uuid.UUID
+    async def complete_app_install(
+        self, installation_id: str, project_id: uuid.UUID, user_id: uuid.UUID
     ) -> GithubConnection:
-        async with httpx.AsyncClient() as client:
-            try:
-                resp = await client.post(
-                    _GITHUB_TOKEN_URL,
-                    data={
-                        "client_id": settings.github_client_id,
-                        "client_secret": settings.github_client_secret,
-                        "code": code,
-                        "redirect_uri": settings.github_redirect_uri,
-                    },
-                    headers={"Accept": "application/json"},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                token_data = resp.json()
-            except httpx.HTTPStatusError as exc:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Trao đổi token GitHub thất bại: {exc.response.status_code}",
-                )
-            except httpx.RequestError:
-                raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
-
-        gh_access_token = token_data.get("access_token")
-        if not gh_access_token:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="Xác thực GitHub thất bại: không nhận được access token — code có thể đã hết hạn",
-            )
-
-        encrypted = encrypt_token(gh_access_token)
         stmt = (
             pg_insert(GithubConnection)
             .values(
                 project_id=project_id,
-                installation_id=None,
-                access_token=encrypted,
+                installation_id=installation_id,
+                access_token=None,
                 connected_by_user_id=user_id,
                 repo_owner="",
                 repo_name="",
@@ -131,9 +133,9 @@ class GithubService:
             .on_conflict_do_update(
                 index_elements=["project_id"],
                 set_={
-                    "access_token": encrypted,
+                    "installation_id": installation_id,
+                    "access_token": None,
                     "connected_by_user_id": user_id,
-                    "installation_id": None,
                     "bootstrap_status": "not_started",
                 },
             )
@@ -147,7 +149,7 @@ class GithubService:
 
     async def select_repo(self, project_id: uuid.UUID, body: GithubSelectRepoRequest) -> GithubConnection:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn)
         try:
             await gh.get(f"/repos/{body.repo_owner}/{body.repo_name}")
         except HTTPException as exc:
@@ -161,9 +163,13 @@ class GithubService:
 
     async def list_repos(self, project_id: uuid.UUID) -> list[dict]:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn)
         try:
-            repos = await gh.get("/user/repos", params={"affiliation": "owner,collaborator", "per_page": 100})
+            if conn.installation_id:
+                data = await gh.get("/installation/repositories", params={"per_page": 100})
+                repos = data["repositories"] if isinstance(data, dict) else data
+            else:
+                repos = await gh.get("/user/repos", params={"affiliation": "owner,collaborator", "per_page": 100})
         except HTTPException as exc:
             await self._handle_token_revoked(conn, exc)
             raise
@@ -177,7 +183,7 @@ class GithubService:
         if not conn:
             return GithubConnectionStatusResponse(connected=False, bootstrap_status="not_started")
         return GithubConnectionStatusResponse(
-            connected=bool(conn.access_token),
+            connected=bool(conn.installation_id or conn.access_token),
             repo_owner=conn.repo_owner or None,
             repo_name=conn.repo_name or None,
             bootstrap_status=conn.bootstrap_status,
@@ -186,11 +192,10 @@ class GithubService:
 
     async def bootstrap(self, project_id: uuid.UUID) -> BootstrapReport:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
-
         conn.bootstrap_status = "in_progress"
         await self.db.flush()
 
+        gh = await self._get_client(conn)
         try:
             label_results = await self._bootstrap_labels(gh, conn.repo_owner, conn.repo_name)
             milestone_result = await self._bootstrap_milestone(gh, conn.repo_owner, conn.repo_name)
@@ -247,7 +252,7 @@ class GithubService:
 
     async def import_preview(self, project_id: uuid.UUID) -> ImportPreviewResponse:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn)
         try:
             issues = await gh.get(
                 f"/repos/{conn.repo_owner}/{conn.repo_name}/issues",
@@ -299,7 +304,7 @@ class GithubService:
                 return
 
             conn = await self._require_connection(project_id)
-            gh = self._get_client(conn)
+            gh = await self._get_client(conn)
 
             text = _CLOSE_MESSAGES.get(reason, "Closed.")
             if comment.strip():
@@ -320,7 +325,7 @@ class GithubService:
         self, project_id: uuid.UUID, body: ImportConfirmRequest
     ) -> list[ImportedItem]:
         conn = await self._require_connection(project_id)
-        gh = self._get_client(conn)
+        gh = await self._get_client(conn)
 
         try:
             raw_issues = await gh.get(

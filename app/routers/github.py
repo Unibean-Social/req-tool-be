@@ -1,8 +1,11 @@
+import json
 import os
 import urllib.parse
 import uuid
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 
 from app.config import settings
 from app.core.guards import require_project_access
@@ -10,10 +13,10 @@ from app.core.responses import created, ok
 from app.deps import current_user, get_github_service
 from app.models.user import User
 from app.routers.github_auth import (
-    GITHUB_AUTHORIZE_URL,
     _CONNECT_COOKIE,
     _COOKIE_MAX_AGE,
     make_connect_state,
+    verify_connect_state,
 )
 from app.schemas.github import (
     BootstrapReport,
@@ -29,11 +32,13 @@ from app.services.github_service import GithubService
 
 router = APIRouter(tags=["github"])
 
+_GITHUB_APP_INSTALL_URL = "https://github.com/apps/{slug}/installations/new"
+
 
 @router.post(
     "/projects/{project_id}/github/connect/init",
     response_model=ApiResponse[ConnectInitResponse],
-    summary="Get GitHub OAuth authorize URL for repo connection",
+    summary="Get GitHub App installation URL for repo connection",
 )
 async def github_connect_init(
     project_id: uuid.UUID,
@@ -44,13 +49,8 @@ async def github_connect_init(
     await require_project_access(project_id, user, service.db)
     nonce = os.urandom(16).hex()
     state = make_connect_state(project_id, user.id, nonce)
-    params = {
-        "client_id": settings.github_client_id,
-        "redirect_uri": settings.github_redirect_uri,
-        "scope": "repo",
-        "state": state,
-    }
-    redirect_url = f"{GITHUB_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+    base_url = _GITHUB_APP_INSTALL_URL.format(slug=settings.github_app_slug)
+    redirect_url = f"{base_url}?{urllib.parse.urlencode({'state': state})}"
     response.set_cookie(
         _CONNECT_COOKIE,
         nonce,
@@ -60,6 +60,64 @@ async def github_connect_init(
         samesite="lax",
     )
     return ok(ConnectInitResponse(redirect_url=redirect_url))
+
+
+@router.get("/github/app/setup", response_class=HTMLResponse, include_in_schema=False)
+async def github_app_setup(
+    response: Response,
+    installation_id: str | None = None,
+    setup_action: str | None = None,
+    state: str | None = None,
+    gh_connect_nonce: str | None = Cookie(default=None, alias=_CONNECT_COOKIE),
+    service: GithubService = Depends(get_github_service),
+):
+    target_origin = settings.cors_origins[0] if settings.cors_origins else "*"
+    _secure = settings.app_env != "development"
+
+    def _err(error: str, description: str | None = None) -> HTMLResponse:
+        payload = json.dumps({"type": "github_error", "error": error, "description": description})
+        return HTMLResponse(f"""<!doctype html><html><body><script>
+window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
+window.close();
+</script><p>Lỗi: {error}</p></body></html>""")
+
+    if setup_action == "delete":
+        return _err("installation_deleted", "GitHub App đã bị gỡ cài đặt")
+
+    if not installation_id:
+        return _err("missing_installation_id", "Không nhận được installation_id từ GitHub")
+
+    if not state or not gh_connect_nonce:
+        return _err("missing_state", "Thiếu state hoặc cookie xác thực")
+
+    response.delete_cookie(_CONNECT_COOKIE, httponly=True, samesite="lax", secure=_secure)
+
+    ids = verify_connect_state(state, gh_connect_nonce)
+    if not ids:
+        return _err("invalid_state", "State không hợp lệ — có thể là tấn công CSRF")
+
+    project_id, user_id = ids
+
+    user_result = await service.db.execute(select(User).where(User.id == user_id))
+    user_obj = user_result.scalar_one_or_none()
+    if not user_obj:
+        return _err("unauthorized", "Không tìm thấy người dùng")
+
+    try:
+        await require_project_access(project_id, user_obj, service.db)
+    except HTTPException:
+        return _err("forbidden", "Không có quyền truy cập project")
+
+    try:
+        await service.complete_app_install(installation_id, project_id, user_id)
+    except HTTPException as exc:
+        return _err("connect_failed", exc.detail)
+
+    payload = json.dumps({"type": "github_connect", "project_id": str(project_id)})
+    return HTMLResponse(f"""<!doctype html><html><body><script>
+window.opener && window.opener.postMessage({payload}, {json.dumps(target_origin)});
+window.close();
+</script><p>Đang đóng cửa sổ...</p></body></html>""")
 
 
 @router.patch(

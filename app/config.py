@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     github_redirect_uri: str = "http://localhost:8000/auth/github/callback"
     github_state_secret: str = ""
 
-    # Kept for backward compat with existing .env files — no longer used
+    # GitHub App — used for repo connection (installation flow)
     github_app_id: str = ""
     github_app_client_id: str = ""
     github_app_private_key: str = ""
