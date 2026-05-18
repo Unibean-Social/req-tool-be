@@ -68,6 +68,7 @@ class FeatureService:
         )
         self.db.add(feature)
         await self.db.flush()
+        feature.stories = []
         _update_parent_references(epic, feature.prefix, "add")
         return self._to_response(feature)
 
