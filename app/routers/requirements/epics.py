@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
@@ -26,11 +26,13 @@ router = APIRouter(prefix="/projects/{project_id}", tags=["epics"])
 @router.get("/epics", response_model=ApiResponse[list[EpicResponse]])
 async def list_epics(
     project_id: uuid.UUID,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     service: EpicService = Depends(get_epic_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.list(project_id))
+    return ok(await service.list(project_id, limit=limit, offset=offset))
 
 
 @router.get("/epics/{epic_id}", response_model=ApiResponse[EpicResponse])

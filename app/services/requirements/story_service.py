@@ -127,6 +127,7 @@ class StoryService:
         if body.acceptance_criteria is not None:
             for ac in story.acceptance_criteria:
                 await self.db.delete(ac)
+            await self.db.flush()
             for i, ac in enumerate(body.acceptance_criteria):
                 self.db.add(AcceptanceCriteria(
                     story_id=story_id,

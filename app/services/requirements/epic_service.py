@@ -77,12 +77,14 @@ class EpicService:
         # new epic has no features yet — rollup is 0
         return EpicResponse.model_validate(epic)
 
-    async def list(self, project_id: uuid.UUID) -> list[EpicResponse]:
+    async def list(self, project_id: uuid.UUID, limit: int = 100, offset: int = 0) -> list[EpicResponse]:
         result = await self.db.execute(
             select(Epic)
             .where(Epic.project_id == project_id)
             .options(selectinload(Epic.features).selectinload(Feature.stories))
             .order_by(Epic.prefix)
+            .limit(limit)
+            .offset(offset)
         )
         return [self._to_response(e) for e in result.scalars().all()]
 

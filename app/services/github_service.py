@@ -261,7 +261,7 @@ class GithubService:
         except HTTPException as exc:
             await self._handle_token_revoked(conn, exc)
             raise
-        preview = ImportPreviewResponse()
+        preview = ImportPreviewResponse(truncated=len(issues) >= 100)
         for issue in issues:
             if issue.get("pull_request"):
                 continue
