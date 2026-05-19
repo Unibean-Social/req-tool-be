@@ -151,26 +151,34 @@ async def test_create_flow_action_with_actor(client):
 
 
 @pytest.mark.asyncio
-async def test_update_flow_action_description_and_order(client):
+async def test_update_flow_actions_batch(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json=[{"description": "Original description", "order": 1}],
+        json=[
+            {"description": "Original description", "order": 1},
+            {"description": "Second action", "order": 2},
+        ],
         headers=h,
     )
-    action = r.json()["data"][0]
+    actions = r.json()["data"]
 
     r = await client.patch(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}",
-        json={"description": "Updated description", "order": 5},
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[
+            {"id": actions[0]["id"], "description": "Updated description", "order": 5},
+            {"id": actions[1]["id"], "order": 10},
+        ],
         headers=h,
     )
     assert r.status_code == 200, r.text
     updated = r.json()["data"]
-    assert updated["description"] == "Updated description."
-    assert updated["order"] == 5
+    by_id = {a["id"]: a for a in updated}
+    assert by_id[actions[0]["id"]]["description"] == "Updated description."
+    assert by_id[actions[0]["id"]]["order"] == 5
+    assert by_id[actions[1]["id"]]["order"] == 10
 
 
 @pytest.mark.asyncio
@@ -193,13 +201,13 @@ async def test_delete_flow_action(client):
 
 
 @pytest.mark.asyncio
-async def test_update_flow_action_404_unknown(client):
+async def test_update_flow_actions_404_unknown(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
 
     r = await client.patch(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{uuid.uuid4()}",
-        json={"description": "Ghost action"},
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"id": str(uuid.uuid4()), "description": "Ghost action"}],
         headers=h,
     )
     assert r.status_code == 404
@@ -217,35 +225,28 @@ async def test_delete_flow_action_404_unknown(client):
     assert r.status_code == 404
 
 
-# ── Rule-link endpoints ────────────────────────────────────────────────────────
+# ── Rule-link via rule_ids ─────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_add_rule_to_action(client):
+async def test_create_action_with_rule_ids(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
     rule = await create_rule(client, h, pid)
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json=[{"description": "Validate input", "order": 1}],
+        json=[{"description": "Validate input", "order": 1, "rule_ids": [rule["id"]]}],
         headers=h,
     )
+    assert r.status_code == 201, r.text
     action = r.json()["data"][0]
-
-    r = await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
-        headers=h,
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()["data"]
-    rule_ids = [rx["id"] for rx in data["rules"]]
-    assert rule["id"] in rule_ids
+    assert rule["id"] in [rx["id"] for rx in action["rules"]]
 
 
 @pytest.mark.asyncio
-async def test_add_rule_to_action_idempotent(client):
-    """Adding the same rule twice should not create duplicates."""
+async def test_patch_action_rule_ids_replaces_rules(client):
+    """PATCH with rule_ids replaces the rule set; same ids twice → 1 rule."""
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
     rule = await create_rule(client, h, pid)
@@ -256,54 +257,63 @@ async def test_add_rule_to_action_idempotent(client):
         headers=h,
     )
     action = r.json()["data"][0]
-    url = f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}"
 
-    await client.post(url, headers=h)
-    r2 = await client.post(url, headers=h)
+    r1 = await client.patch(
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"id": action["id"], "rule_ids": [rule["id"]]}],
+        headers=h,
+    )
+    assert r1.status_code == 200
+    assert len(r1.json()["data"][0]["rules"]) == 1
+
+    r2 = await client.patch(
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"id": action["id"], "rule_ids": [rule["id"]]}],
+        headers=h,
+    )
     assert r2.status_code == 200
-    assert len(r2.json()["data"]["rules"]) == 1
+    assert len(r2.json()["data"][0]["rules"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_remove_rule_from_action(client):
+async def test_remove_rule_from_action_via_patch(client):
+    """PATCH rule_ids=[] clears all rules from the action."""
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
     rule = await create_rule(client, h, pid)
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json=[{"description": "User action", "order": 0}],
+        json=[{"description": "User action", "order": 0, "rule_ids": [rule["id"]]}],
         headers=h,
     )
     action = r.json()["data"][0]
+    assert len(action["rules"]) == 1
 
-    await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
+    r = await client.patch(
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"id": action["id"], "rule_ids": []}],
         headers=h,
     )
-
-    r = await client.delete(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
-        headers=h,
-    )
-    assert r.status_code == 204
+    assert r.status_code == 200
+    assert r.json()["data"][0]["rules"] == []
 
 
 @pytest.mark.asyncio
-async def test_add_rule_unknown_action_404(client):
+async def test_create_action_with_unknown_rule_404(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
-    rule = await create_rule(client, h, pid)
 
     r = await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{uuid.uuid4()}/rules/{rule['id']}",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"description": "User action", "order": 0, "rule_ids": [str(uuid.uuid4())]}],
         headers=h,
     )
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_add_unknown_rule_to_action_404(client):
+async def test_patch_action_with_unknown_rule_404(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
 
@@ -314,8 +324,9 @@ async def test_add_unknown_rule_to_action_404(client):
     )
     action = r.json()["data"][0]
 
-    r = await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{uuid.uuid4()}",
+    r = await client.patch(
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"id": action["id"], "rule_ids": [str(uuid.uuid4())]}],
         headers=h,
     )
     assert r.status_code == 404
@@ -393,15 +404,9 @@ async def test_list_flows_actions_include_rules(client):
     flow = await create_flow(client, h, pid)
     rule = await create_rule(client, h, pid, rule_def="Payment must be verified")
 
-    r = await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json=[{"description": "Process payment", "order": 1}],
-        headers=h,
-    )
-    action = r.json()["data"][0]
-
     await client.post(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
+        json=[{"description": "Process payment", "order": 1, "rule_ids": [rule["id"]]}],
         headers=h,
     )
 

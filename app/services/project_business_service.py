@@ -114,10 +114,16 @@ class ProjectBusinessService:
             actor_ids = {item.actor_id for item in body.actions if item.actor_id is not None}
             for actor_id in actor_ids:
                 await self._validate_actor_in_project(project_id, actor_id)
-            self.db.add_all([
+            action_objs = [
                 ProjectFlowAction(flow_id=obj.id, order=item.order, description=item.description, actor_id=item.actor_id)
                 for item in body.actions
-            ])
+            ]
+            self.db.add_all(action_objs)
+            await self.db.flush()
+            for action_obj, item in zip(action_objs, body.actions):
+                if item.rule_ids:
+                    await self.db.refresh(action_obj, attribute_names=["rules"])
+                    action_obj.rules = await self._resolve_rules(project_id, item.rule_ids)
             await self.db.flush()
 
         flow = await self._load_flow_for_swimlane(obj.id)
@@ -310,6 +316,16 @@ class ProjectBusinessService:
         if not result.scalar_one_or_none():
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="actor_id không thuộc project này")
 
+    async def _resolve_rules(self, project_id: uuid.UUID, rule_ids: list[uuid.UUID]) -> list[ProjectRule]:
+        result = await self.db.execute(
+            select(ProjectRule).where(ProjectRule.id.in_(rule_ids), ProjectRule.project_id == project_id)
+        )
+        rules = result.scalars().all()
+        missing = set(rule_ids) - {r.id for r in rules}
+        if missing:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy rule: {[str(m) for m in missing]}")
+        return list(rules)
+
     async def create_flow_actions(
         self, project_id: uuid.UUID, flow_id: uuid.UUID, items: list[ProjectFlowActionCreate]
     ) -> list[ProjectFlowActionResponse]:
@@ -325,6 +341,11 @@ class ProjectBusinessService:
         ]
         self.db.add_all(objs)
         await self.db.flush()
+        for obj, item in zip(objs, items):
+            if item.rule_ids:
+                await self.db.refresh(obj, attribute_names=["rules"])
+                obj.rules = await self._resolve_rules(project_id, item.rule_ids)
+        await self.db.flush()
 
         flow = await self._load_flow_for_swimlane(flow_id)
         await self._auto_generate_swimlane(flow)
@@ -338,24 +359,33 @@ class ProjectBusinessService:
         )
         return [ProjectFlowActionResponse.model_validate(o) for o in result.scalars().all()]
 
-    async def update_flow_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID, body: ProjectFlowActionUpdate) -> ProjectFlowActionResponse:
+    async def update_flow_actions(
+        self, project_id: uuid.UUID, flow_id: uuid.UUID, items: list[ProjectFlowActionUpdate]
+    ) -> list[ProjectFlowActionResponse]:
         await self._get_flow_in_project(project_id, flow_id)
+        action_ids = [item.id for item in items]
         result = await self.db.execute(
             select(ProjectFlowAction)
-            .where(ProjectFlowAction.id == action_id, ProjectFlowAction.flow_id == flow_id)
+            .where(ProjectFlowAction.id.in_(action_ids), ProjectFlowAction.flow_id == flow_id)
             .options(selectinload(ProjectFlowAction.rules))
         )
-        obj = result.scalar_one_or_none()
-        if not obj:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow action")
-        if body.order is not None:
-            obj.order = body.order
-        if body.description is not None:
-            obj.description = body.description
-        if "actor_id" in body.model_fields_set:
-            if body.actor_id is not None:
-                await self._validate_actor_in_project(project_id, body.actor_id)
-            obj.actor_id = body.actor_id
+        action_map = {obj.id: obj for obj in result.scalars().all()}
+        missing = set(action_ids) - set(action_map.keys())
+        if missing:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy flow action: {[str(m) for m in missing]}")
+
+        for item in items:
+            obj = action_map[item.id]
+            if item.order is not None:
+                obj.order = item.order
+            if item.description is not None:
+                obj.description = item.description
+            if "actor_id" in item.model_fields_set:
+                if item.actor_id is not None:
+                    await self._validate_actor_in_project(project_id, item.actor_id)
+                obj.actor_id = item.actor_id
+            if item.rule_ids is not None:
+                obj.rules = await self._resolve_rules(project_id, item.rule_ids)
         await self.db.flush()
 
         flow = await self._load_flow_for_swimlane(flow_id)
@@ -363,10 +393,11 @@ class ProjectBusinessService:
 
         result2 = await self.db.execute(
             select(ProjectFlowAction)
-            .where(ProjectFlowAction.id == action_id)
+            .where(ProjectFlowAction.id.in_(action_ids))
             .options(selectinload(ProjectFlowAction.rules))
+            .order_by(ProjectFlowAction.order)
         )
-        return ProjectFlowActionResponse.model_validate(result2.scalar_one())
+        return [ProjectFlowActionResponse.model_validate(o) for o in result2.scalars().all()]
 
     async def delete_flow_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID) -> None:
         await self._get_flow_in_project(project_id, flow_id)
@@ -382,43 +413,6 @@ class ProjectBusinessService:
 
         flow = await self._load_flow_for_swimlane(flow_id)
         await self._auto_generate_swimlane(flow)
-
-    async def add_rule_to_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID, rule_id: uuid.UUID) -> ProjectFlowActionResponse:
-        await self._get_flow_in_project(project_id, flow_id)
-        result = await self.db.execute(
-            select(ProjectFlowAction)
-            .where(ProjectFlowAction.id == action_id, ProjectFlowAction.flow_id == flow_id)
-            .options(selectinload(ProjectFlowAction.rules))
-        )
-        action = result.scalar_one_or_none()
-        if not action:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow action")
-        rule_result = await self.db.execute(
-            select(ProjectRule).where(ProjectRule.id == rule_id, ProjectRule.project_id == project_id)
-        )
-        rule = rule_result.scalar_one_or_none()
-        if not rule:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy rule")
-        if rule not in action.rules:
-            action.rules.append(rule)
-            await self.db.flush()
-        return ProjectFlowActionResponse.model_validate(action)
-
-    async def remove_rule_from_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID, rule_id: uuid.UUID) -> None:
-        await self._get_flow_in_project(project_id, flow_id)
-        result = await self.db.execute(
-            select(ProjectFlowAction)
-            .where(ProjectFlowAction.id == action_id, ProjectFlowAction.flow_id == flow_id)
-            .options(selectinload(ProjectFlowAction.rules))
-        )
-        action = result.scalar_one_or_none()
-        if not action:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow action")
-        matched = [r for r in action.rules if r.id == rule_id]
-        if not matched:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Rule không được liên kết với action này")
-        action.rules = [r for r in action.rules if r.id != rule_id]
-        await self.db.flush()
 
     # ── Rules ────────────────────────────────────────────────────────────────
 

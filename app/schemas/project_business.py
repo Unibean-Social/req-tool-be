@@ -159,6 +159,7 @@ class ProjectFlowActionCreate(BaseModel):
     order: int = 0
     description: str
     actor_id: uuid.UUID | None = None
+    rule_ids: list[uuid.UUID] = []
 
     @field_validator("description", mode="before")
     @classmethod
@@ -167,9 +168,11 @@ class ProjectFlowActionCreate(BaseModel):
 
 
 class ProjectFlowActionUpdate(BaseModel):
+    id: uuid.UUID
     order: int | None = None
     description: str | None = None
     actor_id: uuid.UUID | None = None
+    rule_ids: list[uuid.UUID] | None = None
 
     @field_validator("description", mode="before")
     @classmethod

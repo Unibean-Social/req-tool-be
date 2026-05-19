@@ -184,17 +184,16 @@ async def create_flow_actions(
     return created(await service.create_flow_actions(project_id, flow_id, body))
 
 
-@router.patch("/flows/{flow_id}/actions/{action_id}", response_model=ApiResponse[ProjectFlowActionResponse], tags=["Flow Actions"])
-async def update_flow_action(
+@router.patch("/flows/{flow_id}/actions", response_model=ApiResponse[list[ProjectFlowActionResponse]], tags=["Flow Actions"])
+async def update_flow_actions(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
-    action_id: uuid.UUID,
-    body: ProjectFlowActionUpdate,
+    body: list[ProjectFlowActionUpdate],
     user: User = Depends(current_user),
     service: ProjectBusinessService = Depends(get_project_business_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.update_flow_action(project_id, flow_id, action_id, body))
+    return ok(await service.update_flow_actions(project_id, flow_id, body))
 
 
 @router.delete("/flows/{flow_id}/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Flow Actions"])
@@ -208,31 +207,6 @@ async def delete_flow_action(
     await require_project_access(project_id, user, service.db)
     await service.delete_flow_action(project_id, flow_id, action_id)
 
-
-@router.post("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", response_model=ApiResponse[ProjectFlowActionResponse], tags=["Flow Actions"])
-async def add_rule_to_action(
-    project_id: uuid.UUID,
-    flow_id: uuid.UUID,
-    action_id: uuid.UUID,
-    rule_id: uuid.UUID,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return ok(await service.add_rule_to_action(project_id, flow_id, action_id, rule_id))
-
-
-@router.delete("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Flow Actions"])
-async def remove_rule_from_action(
-    project_id: uuid.UUID,
-    flow_id: uuid.UUID,
-    action_id: uuid.UUID,
-    rule_id: uuid.UUID,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    await service.remove_rule_from_action(project_id, flow_id, action_id, rule_id)
 
 
 # ── Rules ─────────────────────────────────────────────────────────────────────
