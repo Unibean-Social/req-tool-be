@@ -19,9 +19,12 @@ from app.models.project_business import (
 )
 from app.models.stakeholder import Stakeholder
 from app.utils.notation_detector import detect_notation
+from app.utils.swimlane_layout import (
+    calculate_layout,
+    layout_to_swimlane_dict,
+    review_positions,
+)
 
-_Y_START = 150
-_Y_STEP = 120
 _DEFAULT_LANE = "lane-default"
 from app.schemas.project_business import (
     ProjectBusinessRequirementCreate,
@@ -265,26 +268,20 @@ class ProjectBusinessService:
         return result.scalar_one()
 
     async def _auto_generate_swimlane(self, flow: ProjectFlow) -> None:
+        # Stage 2: build lane order (preserve insertion order by action.order)
         sorted_actions = sorted(flow.actions, key=lambda a: a.order)
-
         seen: dict[str, str] = {}
         for action in sorted_actions:
-            if action.actor_id:
-                lid = f"lane-{action.actor_id}"
-                if lid not in seen:
-                    seen[lid] = action.actor.name if action.actor else lid
-            else:
-                if _DEFAULT_LANE not in seen:
-                    seen[_DEFAULT_LANE] = "Chung"
+            lid = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
+            if lid not in seen:
+                seen[lid] = action.actor.name if action.actor else lid
         if not seen:
             seen[_DEFAULT_LANE] = "Chung"
 
-        first_lane = next(iter(seen))
-        lane_list = [{"id": lid, "title": title} for lid, title in seen.items()]
-        initial_node = {"id": "start", "lane_id": first_lane, "y": 50}
+        lane_ids = list(seen.keys())
 
-        node_seq = ["start"]
-        enriched_actions = []
+        # Stage 3: detect notations
+        actions_with_notation: list[dict] = []
         for i, action in enumerate(sorted_actions):
             notation = await detect_notation(
                 action.description or "",
@@ -294,34 +291,32 @@ class ProjectBusinessService:
                 model_id=settings.bedrock_notation_model,
             )
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
-            enriched_actions.append({
+            actions_with_notation.append({
                 "id": str(action.id),
                 "lane_id": lane_id,
                 "notation": notation,
-                "index": i,
-                "y": _Y_START + i * _Y_STEP,
                 "label": action.description or "",
+                "order": action.order,
             })
-            node_seq.append(str(action.id))
 
-        node_seq.append("end")
-        activity_final_node = {"id": "end", "lane_id": first_lane, "y": _Y_START + len(sorted_actions) * _Y_STEP}
+        # Stage 4: calculate positions
+        layout = calculate_layout(actions_with_notation, lane_ids)
 
-        control_flows = [
-            {"id": f"f-{node_seq[j]}-{node_seq[j + 1]}", "source": node_seq[j], "target": node_seq[j + 1], "flow_type": "control"}
-            for j in range(len(node_seq) - 1)
-        ]
+        # Stage 5: review and auto-fix
+        layout = await review_positions(
+            layout,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+            region=settings.aws_region,
+            model_id=settings.bedrock_notation_model,
+        )
 
-        flow.swimlane = {
-            "id": str(flow.id),
-            "title": flow.name,
-            "lanes": lane_list,
-            "initial_node": initial_node,
-            "activity_final_node": activity_final_node,
-            "actions": enriched_actions,
-            "flows": control_flows,
-            "layout": None,
-        }
+        # Stage 6: finalize
+        swimlane = layout_to_swimlane_dict(layout, str(flow.id), flow.name)
+        # Restore lane titles from seen map
+        for lane in swimlane["lanes"]:
+            lane["title"] = seen.get(lane["id"], lane["id"])
+        flow.swimlane = swimlane
 
     async def _validate_actor_in_project(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         result = await self.db.execute(
