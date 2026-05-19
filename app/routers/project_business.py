@@ -13,7 +13,6 @@ from app.services.staleness_service import StalenessService
 from app.models.actor import Actor
 from app.models.nfr import NFR
 from app.models.project_business import ProjectFlow, ProjectGoal, ProjectRule
-from app.models.requirements import Epic
 from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
@@ -196,7 +195,7 @@ async def get_setup_progress(
     has_nfrs = (await db.scalar(
         select(func.count()).select_from(NFR).where(NFR.project_id == project_id)
     ) or 0) > 0
-    has_requirements = (await db.scalar(
+    has_actors = (await db.scalar(
         select(func.count()).select_from(Actor).where(Actor.project_id == project_id)
     ) or 0) > 0
 
@@ -204,12 +203,18 @@ async def get_setup_progress(
 
     return ok({
         "core": core_complete,
-        "stakeholders": has_stakeholders,
-        "goals": has_goals,
-        "flows": has_flows,
-        "rules": has_rules,
-        "nfrs": has_nfrs,
-        "requirements": has_requirements,
+        "business_requirements": {
+            "stakeholders": has_stakeholders,
+            "goals": has_goals,
+            "flows": has_flows,
+            "rules": has_rules,
+        },
+        "user_requirements": {
+            "nfrs": has_nfrs,
+        },
+        "functional_requirements": {
+            "actors": has_actors,
+        },
     })
 
 
