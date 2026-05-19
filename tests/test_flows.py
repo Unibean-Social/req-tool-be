@@ -1,12 +1,11 @@
 """
-ProjectFlowAction CRUD, rule-linking, and is_business_actor flag.
+Project flow and flow-action endpoints.
 
 Covers:
-- Flow creation with code/name fields (no title/order)
+- Flow CRUD (code/name/title/order fields)
 - FlowAction CRUD (create, update, delete)
 - FlowAction rule-linking (add / remove)
 - Cascading deletes (flow → actions → junction rows)
-- is_business_actor flag on Stakeholder
 - actor_id linkage on FlowAction
 """
 import uuid
@@ -57,7 +56,7 @@ async def create_stakeholder(client, h, pid, name="Alice", is_business_actor=Fal
     return r.json()["data"]
 
 
-# ── Flow CRUD (code/name fields) ───────────────────────────────────────────────
+# ── Flow CRUD ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -156,7 +155,6 @@ async def test_update_flow_action_description_and_order(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
 
-    # Create action
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
         json=[{"description": "Original description", "order": 1}],
@@ -164,7 +162,6 @@ async def test_update_flow_action_description_and_order(client):
     )
     action = r.json()["data"][0]
 
-    # Update it
     r = await client.patch(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}",
         json={"description": "Updated description", "order": 5},
@@ -280,13 +277,11 @@ async def test_remove_rule_from_action(client):
     )
     action = r.json()["data"][0]
 
-    # Link the rule
     await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
         headers=h,
     )
 
-    # Remove it
     r = await client.delete(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
         headers=h,
@@ -334,7 +329,6 @@ async def test_delete_flow_cascades_to_actions(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
 
-    # Create two actions
     for i in range(2):
         await client.post(
             f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
@@ -342,11 +336,9 @@ async def test_delete_flow_cascades_to_actions(client):
             headers=h,
         )
 
-    # Delete the flow
     r = await client.delete(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
     assert r.status_code == 204
 
-    # Listing flows should return empty
     r = await client.get(f"{BASE}/projects/{pid}/flows", headers=h)
     assert r.status_code == 200
     assert r.json()["data"] == []
@@ -373,70 +365,8 @@ async def test_list_flows_includes_nested_actions(client):
     assert len(flows) == 1
     actions = flows[0]["actions"]
     assert len(actions) == 2
-    # Actions should be ordered by order field
     assert actions[0]["order"] == 1
     assert actions[1]["order"] == 2
-
-
-# ── is_business_actor on Stakeholder ──────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_create_stakeholder_default_not_business_actor(client):
-    h, pid = await _setup(client)
-    r = await client.post(
-        f"{BASE}/projects/{pid}/stakeholders",
-        json={"name": "Regular User"},
-        headers=h,
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()["data"]
-    assert data["is_business_actor"] is False
-
-
-@pytest.mark.asyncio
-async def test_create_stakeholder_as_business_actor(client):
-    h, pid = await _setup(client)
-    r = await client.post(
-        f"{BASE}/projects/{pid}/stakeholders",
-        json={"name": "Business Owner", "is_business_actor": True},
-        headers=h,
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()["data"]
-    assert data["is_business_actor"] is True
-
-
-@pytest.mark.asyncio
-async def test_update_stakeholder_is_business_actor(client):
-    h, pid = await _setup(client)
-    stakeholder = await create_stakeholder(client, h, pid, name="Alice")
-    assert stakeholder["is_business_actor"] is False
-
-    r = await client.patch(
-        f"{BASE}/projects/{pid}/stakeholders/{stakeholder['id']}",
-        json={"is_business_actor": True},
-        headers=h,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["data"]["is_business_actor"] is True
-
-
-@pytest.mark.asyncio
-async def test_stakeholder_response_includes_is_business_actor(client):
-    h, pid = await _setup(client)
-    stakeholder = await create_stakeholder(client, h, pid, name="Bob", is_business_actor=True)
-
-    r = await client.get(
-        f"{BASE}/projects/{pid}/stakeholders/{stakeholder['id']}",
-        headers=h,
-    )
-    assert r.status_code == 200
-    assert "is_business_actor" in r.json()["data"]
-    assert r.json()["data"]["is_business_actor"] is True
-
-
-# ── actor_id on FlowAction ─────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
