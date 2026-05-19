@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     github_app_slug: str = ""
     github_app_redirect_uri: str = ""
 
+    # AWS Bedrock — notation auto-detection
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = "us-east-1"
+    bedrock_notation_model: str = "google.gemma-3-4b-it"
+
     app_env: str = "development"
     app_debug: bool = False
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]
