@@ -112,7 +112,7 @@ class FeatureService:
         if body.labels is not None:
             feature.labels = body.labels
         await self.db.flush()
-        return self._to_response(feature)
+        return self._to_response(await self._get_feature(project_id, feature_id))
 
     async def delete(self, project_id: uuid.UUID, feature_id: uuid.UUID) -> None:
         feature = await self._get_feature(project_id, feature_id)
