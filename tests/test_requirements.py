@@ -1,4 +1,4 @@
-"""Tests for requirement CRUD, BP-07 auto-references, and BP-10 NFR advisory."""
+"""Tests for requirement CRUD, auto-references, and NFR advisory."""
 import uuid
 
 import pytest
@@ -27,7 +27,7 @@ async def _setup(client):
     return h, proj["id"]
 
 
-# ── BP-07: auto-references ────────────────────────────────────────────────────
+# ── Auto-references ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

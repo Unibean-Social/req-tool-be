@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,5 +27,6 @@ class Stakeholder(AuditMixin, Base):
         Enum(InfluenceLevel, name="influencelevel"), nullable=False, default=InfluenceLevel.medium
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_business_actor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     project: Mapped["Project"] = relationship(back_populates="stakeholders")  # noqa: F821

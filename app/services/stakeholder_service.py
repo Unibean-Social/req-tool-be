@@ -34,6 +34,7 @@ class StakeholderService:
             impact_area=body.impact_area,
             influence_level=body.influence_level,
             notes=body.notes,
+            is_business_actor=body.is_business_actor,
         )
         self.db.add(obj)
         await self.db.flush()
@@ -64,6 +65,8 @@ class StakeholderService:
             obj.influence_level = body.influence_level
         if body.notes is not None:
             obj.notes = body.notes
+        if body.is_business_actor is not None:
+            obj.is_business_actor = body.is_business_actor
         return StakeholderResponse.model_validate(obj)
 
     async def delete(self, project_id: uuid.UUID, stakeholder_id: uuid.UUID) -> None:

@@ -27,6 +27,6 @@ class Project(AuditMixin, Base):
     epics: Mapped[list["Epic"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
     stakeholders: Mapped[list["Stakeholder"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
     goals: Mapped[list["ProjectGoal"]] = relationship(back_populates="project", cascade="all, delete-orphan", order_by="ProjectGoal.order")  # noqa: F821
-    flows: Mapped[list["ProjectFlow"]] = relationship(back_populates="project", cascade="all, delete-orphan", order_by="ProjectFlow.order")  # noqa: F821
+    flows: Mapped[list["ProjectFlow"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)  # noqa: F821
     rules: Mapped[list["ProjectRule"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821
     nfrs: Mapped[list["NFR"]] = relationship(back_populates="project", cascade="all, delete-orphan")  # noqa: F821

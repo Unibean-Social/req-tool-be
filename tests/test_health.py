@@ -119,29 +119,29 @@ async def test_health_404_unknown_project(client):
 
 
 @pytest.mark.asyncio
-async def test_audit_epic_has_bp05_label_complete_bp12(client):
+async def test_audit_epic_has_expected_rules(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/epic/{epic['id']}/audit", headers=h)
     assert r.status_code == 200
     rules = {c["rule"] for c in r.json()["data"]}
-    assert {"BP-05", "LABEL_COMPLETE", "BP-12"}.issubset(rules)
+    assert {"CLOSE_REASON_REQUIRED", "LABEL_COMPLETE", "TITLE_NO_ACTOR_NAME"}.issubset(rules)
     for c in r.json()["data"]:
         assert isinstance(c["pass"], bool)
         assert isinstance(c["detail"], str)
 
 
 @pytest.mark.asyncio
-async def test_audit_bp05_passes_for_open_item(client):
+async def test_audit_close_reason_passes_for_open_item(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/epic/{epic['id']}/audit", headers=h)
     assert r.status_code == 200
-    bp05 = find_rule(r.json()["data"], "BP-05")
-    assert bp05["pass"] is True
-    assert "not closed" in bp05["detail"].lower()
+    rule = find_rule(r.json()["data"], "CLOSE_REASON_REQUIRED")
+    assert rule["pass"] is True
+    assert "not closed" in rule["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -167,19 +167,19 @@ async def test_audit_label_complete_passes_with_all_prefixes(client):
 
 
 @pytest.mark.asyncio
-async def test_audit_epic_bp12_passes_with_no_actors(client):
+async def test_audit_epic_title_no_actor_name_passes_with_no_actors(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid, title="Some Epic Title")
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/epic/{epic['id']}/audit", headers=h)
     assert r.status_code == 200
-    bp12 = find_rule(r.json()["data"], "BP-12")
-    assert bp12 is not None
-    assert bp12["pass"] is True
+    rule = find_rule(r.json()["data"], "TITLE_NO_ACTOR_NAME")
+    assert rule is not None
+    assert rule["pass"] is True
 
 
 @pytest.mark.asyncio
-async def test_audit_feature_has_bp10_not_bp12(client):
+async def test_audit_feature_has_nfr_link_required_not_title_no_actor_name(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
     feature = await create_feature(client, h, pid, epic["id"])
@@ -187,35 +187,46 @@ async def test_audit_feature_has_bp10_not_bp12(client):
     r = await client.get(f"{BASE}/projects/{pid}/requirements/feature/{feature['id']}/audit", headers=h)
     assert r.status_code == 200
     rules = {c["rule"] for c in r.json()["data"]}
-    assert "BP-10" in rules
-    assert "BP-12" not in rules
+    assert "NFR_LINK_REQUIRED" in rules
+    assert "TITLE_NO_ACTOR_NAME" not in rules
 
 
 @pytest.mark.asyncio
-async def test_audit_feature_bp10_fails_without_nfr_note(client):
+async def test_audit_feature_nfr_link_required_fails_without_nfr(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
     feature = await create_feature(client, h, pid, epic["id"])
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/feature/{feature['id']}/audit", headers=h)
     assert r.status_code == 200
-    bp10 = find_rule(r.json()["data"], "BP-10")
-    assert bp10["pass"] is False
+    rule = find_rule(r.json()["data"], "NFR_LINK_REQUIRED")
+    assert rule["pass"] is False
 
 
 @pytest.mark.asyncio
-async def test_audit_feature_bp10_passes_with_nfr_note(client):
+async def test_audit_feature_nfr_link_required_passes_with_linked_nfr(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
-    feature = await create_feature(client, h, pid, epic["id"], nfr_note="Latency < 100ms")
+    feature = await create_feature(client, h, pid, epic["id"])
+
+    nfr_r = await client.post(
+        f"{BASE}/projects/{pid}/nfrs",
+        json={
+            "category": "performance",
+            "description": "Latency < 100ms",
+            "feature_ids": [feature["id"]],
+        },
+        headers=h,
+    )
+    assert nfr_r.status_code == 201, nfr_r.text
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/feature/{feature['id']}/audit", headers=h)
     assert r.status_code == 200
-    assert find_rule(r.json()["data"], "BP-10")["pass"] is True
+    assert find_rule(r.json()["data"], "NFR_LINK_REQUIRED")["pass"] is True
 
 
 @pytest.mark.asyncio
-async def test_audit_story_has_bp03_passes_when_ac_present(client):
+async def test_audit_story_has_acceptance_criteria_required(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
     feature = await create_feature(client, h, pid, epic["id"])
@@ -224,8 +235,8 @@ async def test_audit_story_has_bp03_passes_when_ac_present(client):
     r = await client.get(f"{BASE}/projects/{pid}/requirements/story/{story['id']}/audit", headers=h)
     assert r.status_code == 200
     rules = {c["rule"] for c in r.json()["data"]}
-    assert {"BP-03", "BP-05", "LABEL_COMPLETE"}.issubset(rules)
-    assert find_rule(r.json()["data"], "BP-03")["pass"] is True
+    assert {"ACCEPTANCE_CRITERIA_REQUIRED", "CLOSE_REASON_REQUIRED", "LABEL_COMPLETE"}.issubset(rules)
+    assert find_rule(r.json()["data"], "ACCEPTANCE_CRITERIA_REQUIRED")["pass"] is True
 
 
 @pytest.mark.asyncio
@@ -239,8 +250,8 @@ async def test_audit_task_has_only_universal_rules(client):
     r = await client.get(f"{BASE}/projects/{pid}/requirements/task/{task['id']}/audit", headers=h)
     assert r.status_code == 200
     rules = {c["rule"] for c in r.json()["data"]}
-    assert {"BP-05", "LABEL_COMPLETE"}.issubset(rules)
-    assert rules.isdisjoint({"BP-12", "BP-10", "BP-03"})
+    assert {"CLOSE_REASON_REQUIRED", "LABEL_COMPLETE"}.issubset(rules)
+    assert rules.isdisjoint({"TITLE_NO_ACTOR_NAME", "NFR_LINK_REQUIRED", "ACCEPTANCE_CRITERIA_REQUIRED"})
 
 
 @pytest.mark.asyncio
@@ -266,7 +277,7 @@ async def test_audit_403_non_member(client):
 
 
 @pytest.mark.asyncio
-async def test_audit_bp05_fails_closed_item_without_close_reason(client, db_session):
+async def test_audit_close_reason_fails_for_closed_item_without_reason(client, db_session):
     from app.models.requirements import Epic, ItemStatus
 
     h, pid = await _setup(client)
@@ -280,11 +291,11 @@ async def test_audit_bp05_fails_closed_item_without_close_reason(client, db_sess
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/epic/{epic['id']}/audit", headers=h)
     assert r.status_code == 200
-    assert find_rule(r.json()["data"], "BP-05")["pass"] is False
+    assert find_rule(r.json()["data"], "CLOSE_REASON_REQUIRED")["pass"] is False
 
 
 @pytest.mark.asyncio
-async def test_audit_bp05_passes_after_proper_close(client):
+async def test_audit_close_reason_passes_after_proper_close(client):
     h, pid = await _setup(client)
     epic = await create_epic(client, h, pid)
 
@@ -297,4 +308,4 @@ async def test_audit_bp05_passes_after_proper_close(client):
 
     r = await client.get(f"{BASE}/projects/{pid}/requirements/epic/{epic['id']}/audit", headers=h)
     assert r.status_code == 200
-    assert find_rule(r.json()["data"], "BP-05")["pass"] is True
+    assert find_rule(r.json()["data"], "CLOSE_REASON_REQUIRED")["pass"] is True

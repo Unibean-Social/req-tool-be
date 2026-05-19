@@ -12,6 +12,7 @@ class StakeholderCreateRequest(BaseModel):
     impact_area: str | None = None
     influence_level: InfluenceLevel = InfluenceLevel.medium
     notes: str | None = None
+    is_business_actor: bool = False
 
 
 class StakeholderUpdateRequest(BaseModel):
@@ -20,6 +21,7 @@ class StakeholderUpdateRequest(BaseModel):
     impact_area: str | None = None
     influence_level: InfluenceLevel | None = None
     notes: str | None = None
+    is_business_actor: bool | None = None
 
 
 class StakeholderResponse(BaseModel):
@@ -32,5 +34,6 @@ class StakeholderResponse(BaseModel):
     impact_area: str | None
     influence_level: InfluenceLevel
     notes: str | None
+    is_business_actor: bool
     created_at: datetime
     updated_at: datetime

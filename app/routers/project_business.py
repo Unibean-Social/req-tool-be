@@ -12,10 +12,13 @@ from app.schemas.staleness import StalenessWarningItem
 from app.services.staleness_service import StalenessService
 from app.models.actor import Actor
 from app.models.nfr import NFR
-from app.models.project_business import ProjectFlow, ProjectGoal, ProjectRule
+from app.models.project_business import ProjectFlow, ProjectFlowAction, ProjectGoal, ProjectRule
 from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
+    ProjectFlowActionCreate,
+    ProjectFlowActionResponse,
+    ProjectFlowActionUpdate,
     ProjectFlowCreate,
     ProjectFlowResponse,
     ProjectFlowUpdate,
@@ -122,6 +125,71 @@ async def delete_flow(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_flow(project_id, flow_id)
+
+
+# ── Flow Actions ──────────────────────────────────────────────────────────────
+
+@router.post("/flows/{flow_id}/actions", response_model=ApiResponse[ProjectFlowActionResponse], status_code=status.HTTP_201_CREATED)
+async def create_flow_action(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    body: ProjectFlowActionCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create_flow_action(project_id, flow_id, body))
+
+
+@router.patch("/flows/{flow_id}/actions/{action_id}", response_model=ApiResponse[ProjectFlowActionResponse])
+async def update_flow_action(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    action_id: uuid.UUID,
+    body: ProjectFlowActionUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_flow_action(project_id, flow_id, action_id, body))
+
+
+@router.delete("/flows/{flow_id}/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_flow_action(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    action_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_flow_action(project_id, flow_id, action_id)
+
+
+@router.post("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", response_model=ApiResponse[ProjectFlowActionResponse])
+async def add_rule_to_action(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    action_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.add_rule_to_action(project_id, flow_id, action_id, rule_id))
+
+
+@router.delete("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_rule_from_action(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    action_id: uuid.UUID,
+    rule_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.remove_rule_from_action(project_id, flow_id, action_id, rule_id)
 
 
 # ── Rules ─────────────────────────────────────────────────────────────────────
