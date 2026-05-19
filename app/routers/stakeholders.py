@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
@@ -10,7 +10,7 @@ from app.schemas.response import ApiResponse
 from app.schemas.stakeholder import StakeholderCreateRequest, StakeholderResponse, StakeholderUpdateRequest
 from app.services.stakeholder_service import StakeholderService
 
-router = APIRouter(prefix="/projects/{project_id}/stakeholders", tags=["stakeholders"])
+router = APIRouter(prefix="/projects/{project_id}/stakeholders", tags=["Stakeholders"])
 
 
 @router.post("", response_model=ApiResponse[StakeholderResponse], status_code=status.HTTP_201_CREATED)
@@ -27,11 +27,12 @@ async def create_stakeholder(
 @router.get("", response_model=ApiResponse[list[StakeholderResponse]])
 async def list_stakeholders(
     project_id: uuid.UUID,
+    is_business_actor: bool | None = Query(default=None),
     user: User = Depends(current_user),
     service: StakeholderService = Depends(get_stakeholder_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.list(project_id))
+    return ok(await service.list(project_id, is_business_actor=is_business_actor))
 
 
 @router.get("/{stakeholder_id}", response_model=ApiResponse[StakeholderResponse])

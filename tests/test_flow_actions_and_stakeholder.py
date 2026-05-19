@@ -123,11 +123,11 @@ async def test_create_flow_action_minimal(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Student selects course", "order": 1},
+        json=[{"description": "Student selects course", "order": 1}],
         headers=h,
     )
     assert r.status_code == 201, r.text
-    action = r.json()["data"]
+    action = r.json()["data"][0]
     assert action["description"] == "Student selects course."
     assert action["order"] == 1
     assert action["actor_id"] is None
@@ -143,11 +143,11 @@ async def test_create_flow_action_with_actor(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "System validates payment", "order": 2, "actor_id": stakeholder["id"]},
+        json=[{"description": "System validates payment", "order": 2, "actor_id": stakeholder["id"]}],
         headers=h,
     )
     assert r.status_code == 201, r.text
-    action = r.json()["data"]
+    action = r.json()["data"][0]
     assert action["actor_id"] == stakeholder["id"]
 
 
@@ -159,10 +159,10 @@ async def test_update_flow_action_description_and_order(client):
     # Create action
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Original description", "order": 1},
+        json=[{"description": "Original description", "order": 1}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     # Update it
     r = await client.patch(
@@ -183,10 +183,10 @@ async def test_delete_flow_action(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Temp action", "order": 0},
+        json=[{"description": "Temp action", "order": 0}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     r = await client.delete(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}",
@@ -231,10 +231,10 @@ async def test_add_rule_to_action(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Validate input", "order": 1},
+        json=[{"description": "Validate input", "order": 1}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",
@@ -255,10 +255,10 @@ async def test_add_rule_to_action_idempotent(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "User action", "order": 0},
+        json=[{"description": "User action", "order": 0}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
     url = f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}"
 
     await client.post(url, headers=h)
@@ -275,10 +275,10 @@ async def test_remove_rule_from_action(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "User action", "order": 0},
+        json=[{"description": "User action", "order": 0}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     # Link the rule
     await client.post(
@@ -314,10 +314,10 @@ async def test_add_unknown_rule_to_action_404(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "User action", "order": 0},
+        json=[{"description": "User action", "order": 0}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{uuid.uuid4()}",
@@ -338,7 +338,7 @@ async def test_delete_flow_cascades_to_actions(client):
     for i in range(2):
         await client.post(
             f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-            json={"description": f"Action {i}", "order": i},
+            json=[{"description": f"Action {i}", "order": i}],
             headers=h,
         )
 
@@ -359,12 +359,12 @@ async def test_list_flows_includes_nested_actions(client):
 
     await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Step 1", "order": 1},
+        json=[{"description": "Step 1", "order": 1}],
         headers=h,
     )
     await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Step 2", "order": 2},
+        json=[{"description": "Step 2", "order": 2}],
         headers=h,
     )
 
@@ -448,11 +448,11 @@ async def test_flow_action_with_business_actor_stakeholder(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Finance approves budget", "order": 3, "actor_id": ba["id"]},
+        json=[{"description": "Finance approves budget", "order": 3, "actor_id": ba["id"]}],
         headers=h,
     )
     assert r.status_code == 201, r.text
-    action = r.json()["data"]
+    action = r.json()["data"][0]
     assert action["actor_id"] == ba["id"]
 
 
@@ -465,10 +465,10 @@ async def test_list_flows_actions_include_rules(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Process payment", "order": 1},
+        json=[{"description": "Process payment", "order": 1}],
         headers=h,
     )
-    action = r.json()["data"]
+    action = r.json()["data"][0]
 
     await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{action['id']}/rules/{rule['id']}",

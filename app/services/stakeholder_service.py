@@ -40,12 +40,13 @@ class StakeholderService:
         await self.db.flush()
         return StakeholderResponse.model_validate(obj)
 
-    async def list(self, project_id: uuid.UUID) -> list[StakeholderResponse]:
-        result = await self.db.execute(
-            select(Stakeholder)
-            .where(Stakeholder.project_id == project_id)
-            .order_by(Stakeholder.created_at)
-        )
+    async def list(
+        self, project_id: uuid.UUID, is_business_actor: bool | None = None
+    ) -> list[StakeholderResponse]:
+        q = select(Stakeholder).where(Stakeholder.project_id == project_id)
+        if is_business_actor is not None:
+            q = q.where(Stakeholder.is_business_actor == is_business_actor)
+        result = await self.db.execute(q.order_by(Stakeholder.created_at))
         return [StakeholderResponse.model_validate(s) for s in result.scalars().all()]
 
     async def get(self, project_id: uuid.UUID, stakeholder_id: uuid.UUID) -> StakeholderResponse:
