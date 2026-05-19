@@ -1,21 +1,35 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
 from app.database import get_db
-from app.deps import current_user, get_project_business_service, get_staleness_service
+from app.deps import current_user, get_brd_export_service, get_project_business_service, get_staleness_service
 from app.schemas.staleness import StalenessWarningItem
 from app.services.staleness_service import StalenessService
 from app.models.actor import Actor
 from app.models.nfr import NFR
-from app.models.project_business import ProjectFlow, ProjectFlowAction, ProjectGoal, ProjectRule
+from app.models.project_business import (
+    ConstraintSeverity,
+    ConstraintType,
+    ProjectConstraint,
+    ProjectFlow,
+    ProjectFlowAction,
+    ProjectGoal,
+    ProjectRule,
+)
 from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
+    ProjectBusinessRequirementCreate,
+    ProjectBusinessRequirementResponse,
+    ProjectBusinessRequirementUpdate,
+    ProjectConstraintCreate,
+    ProjectConstraintResponse,
+    ProjectConstraintUpdate,
     ProjectFlowActionCreate,
     ProjectFlowActionResponse,
     ProjectFlowActionUpdate,
@@ -24,6 +38,9 @@ from app.schemas.project_business import (
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
+    ProjectGoalObjectiveCreate,
+    ProjectGoalObjectiveResponse,
+    ProjectGoalObjectiveUpdate,
     ProjectGoalResponse,
     ProjectGoalUpdate,
     ProjectRuleCreate,
@@ -32,6 +49,7 @@ from app.schemas.project_business import (
     SwimlaneRequest,
 )
 from app.schemas.response import ApiResponse
+from app.services.brd_export_service import BRDExportService
 from app.services.project_business_service import ProjectBusinessService
 
 router = APIRouter(prefix="/projects/{project_id}")
@@ -263,6 +281,150 @@ async def delete_rule(
     await service.delete_rule(project_id, rule_id)
 
 
+# ── Goal Objectives ───────────────────────────────────────────────────────────
+
+@router.post("/goals/{goal_id}/objectives", response_model=ApiResponse[ProjectGoalObjectiveResponse], status_code=status.HTTP_201_CREATED, tags=["Goal Objectives"])
+async def create_objective(
+    project_id: uuid.UUID,
+    goal_id: uuid.UUID,
+    body: ProjectGoalObjectiveCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create_objective(project_id, goal_id, body))
+
+
+@router.get("/goals/{goal_id}/objectives", response_model=ApiResponse[list[ProjectGoalObjectiveResponse]], tags=["Goal Objectives"])
+async def list_objectives(
+    project_id: uuid.UUID,
+    goal_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_objectives(project_id, goal_id))
+
+
+@router.patch("/goals/{goal_id}/objectives/{objective_id}", response_model=ApiResponse[ProjectGoalObjectiveResponse], tags=["Goal Objectives"])
+async def update_objective(
+    project_id: uuid.UUID,
+    goal_id: uuid.UUID,
+    objective_id: uuid.UUID,
+    body: ProjectGoalObjectiveUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_objective(project_id, goal_id, objective_id, body))
+
+
+@router.delete("/goals/{goal_id}/objectives/{objective_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Goal Objectives"])
+async def delete_objective(
+    project_id: uuid.UUID,
+    goal_id: uuid.UUID,
+    objective_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_objective(project_id, goal_id, objective_id)
+
+
+# ── Constraints ───────────────────────────────────────────────────────────────
+
+@router.post("/constraints", response_model=ApiResponse[ProjectConstraintResponse], status_code=status.HTTP_201_CREATED, tags=["Project Constraints"])
+async def create_constraint(
+    project_id: uuid.UUID,
+    body: ProjectConstraintCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create_constraint(project_id, body))
+
+
+@router.get("/constraints", response_model=ApiResponse[list[ProjectConstraintResponse]], tags=["Project Constraints"])
+async def list_constraints(
+    project_id: uuid.UUID,
+    type: ConstraintType | None = Query(None),
+    severity: ConstraintSeverity | None = Query(None),
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_constraints(project_id, type, severity))
+
+
+@router.patch("/constraints/{constraint_id}", response_model=ApiResponse[ProjectConstraintResponse], tags=["Project Constraints"])
+async def update_constraint(
+    project_id: uuid.UUID,
+    constraint_id: uuid.UUID,
+    body: ProjectConstraintUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_constraint(project_id, constraint_id, body))
+
+
+@router.delete("/constraints/{constraint_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Project Constraints"])
+async def delete_constraint(
+    project_id: uuid.UUID,
+    constraint_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_constraint(project_id, constraint_id)
+
+
+# ── Business Requirements ─────────────────────────────────────────────────────
+
+@router.post("/business-requirements", response_model=ApiResponse[ProjectBusinessRequirementResponse], status_code=status.HTTP_201_CREATED, tags=["Business Requirements"])
+async def create_business_requirement(
+    project_id: uuid.UUID,
+    body: ProjectBusinessRequirementCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create_business_requirement(project_id, body))
+
+
+@router.get("/business-requirements", response_model=ApiResponse[list[ProjectBusinessRequirementResponse]], tags=["Business Requirements"])
+async def list_business_requirements(
+    project_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_business_requirements(project_id))
+
+
+@router.patch("/business-requirements/{br_id}", response_model=ApiResponse[ProjectBusinessRequirementResponse], tags=["Business Requirements"])
+async def update_business_requirement(
+    project_id: uuid.UUID,
+    br_id: uuid.UUID,
+    body: ProjectBusinessRequirementUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_business_requirement(project_id, br_id, body))
+
+
+@router.delete("/business-requirements/{br_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Business Requirements"])
+async def delete_business_requirement(
+    project_id: uuid.UUID,
+    br_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_business_requirement(project_id, br_id)
+
+
 # ── Setup Progress ────────────────────────────────────────────────────────────
 
 @router.get("/setup-progress", tags=["Project Setup"])
@@ -291,6 +453,9 @@ async def get_setup_progress(
     has_actors = (await db.scalar(
         select(func.count()).select_from(Actor).where(Actor.project_id == project_id)
     ) or 0) > 0
+    has_constraints = (await db.scalar(
+        select(func.count()).select_from(ProjectConstraint).where(ProjectConstraint.project_id == project_id)
+    ) or 0) > 0
 
     core_complete = bool(project.context and project.description and project.problems)
 
@@ -301,6 +466,7 @@ async def get_setup_progress(
             "goals": has_goals,
             "flows": has_flows,
             "rules": has_rules,
+            "constraints": has_constraints,
         },
         "user_requirements": {
             "nfrs": has_nfrs,
@@ -309,6 +475,24 @@ async def get_setup_progress(
             "actors": has_actors,
         },
     })
+
+
+# ── BRD Export ────────────────────────────────────────────────────────────────
+
+@router.get("/brd/export", tags=["BRD"])
+async def export_brd(
+    project_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: BRDExportService = Depends(get_brd_export_service),
+):
+    await require_project_access(project_id, user, service.db)
+    from fastapi.responses import Response
+    md = await service.generate(project_id)
+    return Response(
+        content=md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="brd-{project_id}.md"'},
+    )
 
 
 @router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]], tags=["Project Setup"])

@@ -68,6 +68,10 @@ class ProjectService:
             project.problems = body.problems
         if body.proposed_solutions is not None:
             project.proposed_solutions = body.proposed_solutions
+        for field in ("start_date", "end_date", "budget", "executive_summary", "roi_notes"):
+            value = getattr(body, field)
+            if value is not None:
+                setattr(project, field, value)
         return project
 
     async def delete(self, org_id: uuid.UUID, project_id: uuid.UUID) -> None:

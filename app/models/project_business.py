@@ -1,7 +1,9 @@
 import enum
 import uuid
+from datetime import date
+from decimal import Decimal
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, Table, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, Numeric, Table, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import JSON
@@ -19,7 +21,30 @@ class RuleType(str, enum.Enum):
     regulation = "regulation"
 
 
+class GoalPriority(str, enum.Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
+class ConstraintType(str, enum.Enum):
+    budget = "budget"
+    timeline = "timeline"
+    technical = "technical"
+    resource = "resource"
+    regulatory = "regulatory"
+
+
+class ConstraintSeverity(str, enum.Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
 _rule_type = SAEnum(RuleType, name="ruletype")
+_goal_priority = SAEnum(GoalPriority, name="goalpriority", native_enum=False)
+_constraint_type = SAEnum(ConstraintType, name="constrainttype", native_enum=False)
+_constraint_severity = SAEnum(ConstraintSeverity, name="constraintseverity", native_enum=False)
 
 
 # M2M association table — ProjectFlowAction ↔ ProjectRule
@@ -41,8 +66,14 @@ class ProjectGoal(AuditMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    priority: Mapped[GoalPriority] = mapped_column(_goal_priority, nullable=False, default=GoalPriority.medium)
+    success_metric: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="goals")  # noqa: F821
+    objectives: Mapped[list["ProjectGoalObjective"]] = relationship(
+        back_populates="goal", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class ProjectFlow(AuditMixin, Base):
@@ -106,3 +137,40 @@ class ProjectRule(AuditMixin, Base):
         back_populates="rules",
         lazy="noload",
     )
+
+
+class ProjectConstraint(AuditMixin, Base):
+    __tablename__ = "project_constraints"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    type: Mapped[ConstraintType] = mapped_column(_constraint_type, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[ConstraintSeverity] = mapped_column(_constraint_severity, nullable=False, default=ConstraintSeverity.medium)
+
+    project: Mapped["Project"] = relationship(back_populates="constraints")  # noqa: F821
+
+
+class ProjectGoalObjective(AuditMixin, Base):
+    __tablename__ = "project_goal_objectives"
+
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_goals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+
+    goal: Mapped["ProjectGoal"] = relationship(back_populates="objectives")
+
+
+class ProjectBusinessRequirement(AuditMixin, Base):
+    __tablename__ = "project_business_requirements"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[GoalPriority] = mapped_column(_goal_priority, nullable=False, default=GoalPriority.medium)
+    is_critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    project: Mapped["Project"] = relationship(back_populates="business_requirements")  # noqa: F821

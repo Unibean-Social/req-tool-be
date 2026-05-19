@@ -16,7 +16,15 @@ from app.models.sync import GithubItem, SyncLog, SyncQueue
 from app.models.stakeholder import Stakeholder
 from app.models.nfr import NFR, nfr_feature_links
 from app.models.story_estimate import StoryEstimate
-from app.models.project_business import ProjectGoal, ProjectFlow, ProjectFlowAction, ProjectRule
+from app.models.project_business import (
+    ProjectGoal,
+    ProjectFlow,
+    ProjectFlowAction,
+    ProjectRule,
+    ProjectConstraint,
+    ProjectGoalObjective,
+    ProjectBusinessRequirement,
+)
 
 __all__ = [
     "Base",
@@ -43,4 +51,7 @@ __all__ = [
     "ProjectFlow",
     "ProjectFlowAction",
     "ProjectRule",
+    "ProjectConstraint",
+    "ProjectGoalObjective",
+    "ProjectBusinessRequirement",
 ]

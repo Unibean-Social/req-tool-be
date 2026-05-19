@@ -1,10 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, computed_field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
-from app.models.project_business import RuleType
+from app.models.project_business import ConstraintSeverity, ConstraintType, GoalPriority, RuleType
 
 
 def _normalize_action_description(value: str) -> str:
@@ -25,11 +25,17 @@ def _normalize_action_description(value: str) -> str:
 class ProjectGoalCreate(BaseModel):
     description: str
     order: int = 0
+    priority: GoalPriority = GoalPriority.medium
+    success_metric: str | None = None
+    target_date: date | None = None
 
 
 class ProjectGoalUpdate(BaseModel):
     description: str | None = None
     order: int | None = None
+    priority: GoalPriority | None = None
+    success_metric: str | None = None
+    target_date: date | None = None
 
 
 class ProjectGoalResponse(BaseModel):
@@ -39,6 +45,81 @@ class ProjectGoalResponse(BaseModel):
     project_id: uuid.UUID
     description: str
     order: int
+    priority: GoalPriority
+    success_metric: str | None
+    target_date: date | None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Goal Objectives ────────────────────────────────────────────────────────────
+
+class ProjectGoalObjectiveCreate(BaseModel):
+    description: str
+
+
+class ProjectGoalObjectiveUpdate(BaseModel):
+    description: str
+
+
+class ProjectGoalObjectiveResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    goal_id: uuid.UUID
+    description: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Constraints ────────────────────────────────────────────────────────────────
+
+class ProjectConstraintCreate(BaseModel):
+    type: ConstraintType
+    description: str
+    severity: ConstraintSeverity = ConstraintSeverity.medium
+
+
+class ProjectConstraintUpdate(BaseModel):
+    type: ConstraintType | None = None
+    description: str | None = None
+    severity: ConstraintSeverity | None = None
+
+
+class ProjectConstraintResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    type: ConstraintType
+    description: str
+    severity: ConstraintSeverity
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Business Requirements ──────────────────────────────────────────────────────
+
+class ProjectBusinessRequirementCreate(BaseModel):
+    description: str
+    priority: GoalPriority = GoalPriority.medium
+    is_critical: bool = False
+
+
+class ProjectBusinessRequirementUpdate(BaseModel):
+    description: str | None = None
+    priority: GoalPriority | None = None
+    is_critical: bool | None = None
+
+
+class ProjectBusinessRequirementResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    description: str
+    priority: GoalPriority
+    is_critical: bool
     created_at: datetime
     updated_at: datetime
 

@@ -8,7 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.models.project_business import ProjectFlow, ProjectFlowAction, ProjectGoal, ProjectRule
+from app.models.project_business import (
+    ProjectBusinessRequirement,
+    ProjectConstraint,
+    ProjectFlow,
+    ProjectFlowAction,
+    ProjectGoal,
+    ProjectGoalObjective,
+    ProjectRule,
+)
 from app.models.stakeholder import Stakeholder
 from app.utils.notation_detector import detect_notation
 
@@ -16,6 +24,12 @@ _Y_START = 150
 _Y_STEP = 120
 _DEFAULT_LANE = "lane-default"
 from app.schemas.project_business import (
+    ProjectBusinessRequirementCreate,
+    ProjectBusinessRequirementResponse,
+    ProjectBusinessRequirementUpdate,
+    ProjectConstraintCreate,
+    ProjectConstraintResponse,
+    ProjectConstraintUpdate,
     ProjectFlowActionCreate,
     ProjectFlowActionResponse,
     ProjectFlowActionUpdate,
@@ -24,6 +38,9 @@ from app.schemas.project_business import (
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
+    ProjectGoalObjectiveCreate,
+    ProjectGoalObjectiveResponse,
+    ProjectGoalObjectiveUpdate,
     ProjectGoalResponse,
     ProjectGoalUpdate,
     ProjectRuleCreate,
@@ -40,7 +57,14 @@ class ProjectBusinessService:
     # ── Goals ────────────────────────────────────────────────────────────────
 
     async def create_goal(self, project_id: uuid.UUID, body: ProjectGoalCreate) -> ProjectGoalResponse:
-        obj = ProjectGoal(project_id=project_id, description=body.description, order=body.order)
+        obj = ProjectGoal(
+            project_id=project_id,
+            description=body.description,
+            order=body.order,
+            priority=body.priority,
+            success_metric=body.success_metric,
+            target_date=body.target_date,
+        )
         self.db.add(obj)
         await self.db.flush()
         return ProjectGoalResponse.model_validate(obj)
@@ -62,6 +86,12 @@ class ProjectBusinessService:
             obj.description = body.description
         if body.order is not None:
             obj.order = body.order
+        if body.priority is not None:
+            obj.priority = body.priority
+        if body.success_metric is not None:
+            obj.success_metric = body.success_metric
+        if body.target_date is not None:
+            obj.target_date = body.target_date
         return ProjectGoalResponse.model_validate(obj)
 
     async def delete_goal(self, project_id: uuid.UUID, goal_id: uuid.UUID) -> None:
@@ -434,4 +464,139 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy rule")
+        await self.db.delete(obj)
+
+    # ── Constraints ──────────────────────────────────────────────────────────
+
+    async def create_constraint(self, project_id: uuid.UUID, body: ProjectConstraintCreate) -> ProjectConstraintResponse:
+        obj = ProjectConstraint(project_id=project_id, type=body.type, description=body.description, severity=body.severity)
+        self.db.add(obj)
+        await self.db.flush()
+        return ProjectConstraintResponse.model_validate(obj)
+
+    async def list_constraints(self, project_id: uuid.UUID, type=None, severity=None) -> list[ProjectConstraintResponse]:
+        q = select(ProjectConstraint).where(ProjectConstraint.project_id == project_id)
+        if type is not None:
+            q = q.where(ProjectConstraint.type == type)
+        if severity is not None:
+            q = q.where(ProjectConstraint.severity == severity)
+        result = await self.db.execute(q.order_by(ProjectConstraint.created_at))
+        return [ProjectConstraintResponse.model_validate(c) for c in result.scalars().all()]
+
+    async def update_constraint(self, project_id: uuid.UUID, constraint_id: uuid.UUID, body: ProjectConstraintUpdate) -> ProjectConstraintResponse:
+        result = await self.db.execute(
+            select(ProjectConstraint).where(ProjectConstraint.id == constraint_id, ProjectConstraint.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy constraint")
+        if body.type is not None:
+            obj.type = body.type
+        if body.description is not None:
+            obj.description = body.description
+        if body.severity is not None:
+            obj.severity = body.severity
+        return ProjectConstraintResponse.model_validate(obj)
+
+    async def delete_constraint(self, project_id: uuid.UUID, constraint_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(ProjectConstraint).where(ProjectConstraint.id == constraint_id, ProjectConstraint.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy constraint")
+        await self.db.delete(obj)
+
+    # ── Goal Objectives ───────────────────────────────────────────────────────
+
+    async def create_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, body: ProjectGoalObjectiveCreate) -> ProjectGoalObjectiveResponse:
+        goal = await self.db.execute(
+            select(ProjectGoal).where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
+        )
+        if not goal.scalar_one_or_none():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy goal")
+        obj = ProjectGoalObjective(goal_id=goal_id, description=body.description)
+        self.db.add(obj)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return ProjectGoalObjectiveResponse.model_validate(obj)
+
+    async def list_objectives(self, project_id: uuid.UUID, goal_id: uuid.UUID) -> list[ProjectGoalObjectiveResponse]:
+        goal = await self.db.execute(
+            select(ProjectGoal).where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
+        )
+        if not goal.scalar_one_or_none():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy goal")
+        result = await self.db.execute(
+            select(ProjectGoalObjective).where(ProjectGoalObjective.goal_id == goal_id).order_by(ProjectGoalObjective.created_at)
+        )
+        return [ProjectGoalObjectiveResponse.model_validate(o) for o in result.scalars().all()]
+
+    async def update_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, objective_id: uuid.UUID, body: ProjectGoalObjectiveUpdate) -> ProjectGoalObjectiveResponse:
+        result = await self.db.execute(
+            select(ProjectGoalObjective)
+            .join(ProjectGoal)
+            .where(ProjectGoalObjective.id == objective_id, ProjectGoalObjective.goal_id == goal_id, ProjectGoal.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy objective")
+        obj.description = body.description
+        return ProjectGoalObjectiveResponse.model_validate(obj)
+
+    async def delete_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, objective_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(ProjectGoalObjective)
+            .join(ProjectGoal)
+            .where(ProjectGoalObjective.id == objective_id, ProjectGoalObjective.goal_id == goal_id, ProjectGoal.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy objective")
+        await self.db.delete(obj)
+
+    # ── Business Requirements ─────────────────────────────────────────────────
+
+    async def create_business_requirement(self, project_id: uuid.UUID, body: ProjectBusinessRequirementCreate) -> ProjectBusinessRequirementResponse:
+        obj = ProjectBusinessRequirement(
+            project_id=project_id,
+            description=body.description,
+            priority=body.priority,
+            is_critical=body.is_critical,
+        )
+        self.db.add(obj)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return ProjectBusinessRequirementResponse.model_validate(obj)
+
+    async def list_business_requirements(self, project_id: uuid.UUID) -> list[ProjectBusinessRequirementResponse]:
+        result = await self.db.execute(
+            select(ProjectBusinessRequirement).where(ProjectBusinessRequirement.project_id == project_id).order_by(ProjectBusinessRequirement.created_at)
+        )
+        return [ProjectBusinessRequirementResponse.model_validate(r) for r in result.scalars().all()]
+
+    async def update_business_requirement(self, project_id: uuid.UUID, br_id: uuid.UUID, body: ProjectBusinessRequirementUpdate) -> ProjectBusinessRequirementResponse:
+        result = await self.db.execute(
+            select(ProjectBusinessRequirement).where(ProjectBusinessRequirement.id == br_id, ProjectBusinessRequirement.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy business requirement")
+        if body.description is not None:
+            obj.description = body.description
+        if body.priority is not None:
+            obj.priority = body.priority
+        if body.is_critical is not None:
+            obj.is_critical = body.is_critical
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return ProjectBusinessRequirementResponse.model_validate(obj)
+
+    async def delete_business_requirement(self, project_id: uuid.UUID, br_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(ProjectBusinessRequirement).where(ProjectBusinessRequirement.id == br_id, ProjectBusinessRequirement.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy business requirement")
         await self.db.delete(obj)

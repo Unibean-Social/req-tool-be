@@ -21,6 +21,7 @@ from app.services.nfr_service import NFRService
 from app.services.project_business_service import ProjectBusinessService
 from app.services.estimate_service import EstimateService
 from app.services.staleness_service import StalenessService
+from app.services.brd_export_service import BRDExportService
 
 bearer = HTTPBearer()
 
@@ -110,3 +111,7 @@ def get_estimate_service(db: AsyncSession = Depends(get_db)) -> EstimateService:
 
 def get_staleness_service(db: AsyncSession = Depends(get_db)) -> StalenessService:
     return StalenessService(db)
+
+
+def get_brd_export_service(db: AsyncSession = Depends(get_db)) -> BRDExportService:
+    return BRDExportService(db)
