@@ -105,11 +105,12 @@ async def test_update_flow_code_and_name(client):
 
 
 @pytest.mark.asyncio
-async def test_flow_response_has_no_title_field(client):
-    """Ensure the old 'title' field is gone."""
+async def test_flow_response_has_title_alias_and_order(client):
+    """title is a computed alias for name; order defaults to 0."""
     h, pid = await _setup(client)
-    flow = await create_flow(client, h, pid)
-    assert "title" not in flow
+    flow = await create_flow(client, h, pid, name="Login Flow")
+    assert flow["title"] == "Login Flow"
+    assert flow["order"] == 0
 
 
 # ── FlowAction CRUD ────────────────────────────────────────────────────────────

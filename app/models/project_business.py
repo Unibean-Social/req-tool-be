@@ -4,6 +4,7 @@ import uuid
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, Table, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditMixin, Base
@@ -56,6 +57,7 @@ class ProjectFlow(AuditMixin, Base):
     code: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    swimlane: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
     project: Mapped["Project"] = relationship(back_populates="flows")  # noqa: F821
     actions: Mapped[list["ProjectFlowAction"]] = relationship(

@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, computed_field, field_validator, model_validator
 
 from app.models.project_business import RuleType
 
@@ -108,6 +109,73 @@ class ProjectFlowActionResponse(BaseModel):
     updated_at: datetime
 
 
+# ── Swimlane schemas ───────────────────────────────────────────────────────────
+
+class SwimlaneLane(BaseModel):
+    id: str
+    title: str
+
+
+class SwimlaneNode(BaseModel):
+    id: str
+    lane_id: str
+    y: float
+
+
+class SwimlaneAction(BaseModel):
+    id: str
+    lane_id: str
+    label: str
+    notation: Literal["action", "objectNode", "decision", "merge", "fork", "join"] = "action"
+    index: int | None = None
+    y: float
+
+
+class SwimlaneFlow(BaseModel):
+    id: str
+    source: str
+    target: str
+    source_handle: str | None = None
+    target_handle: str | None = None
+    label: str | None = None
+    flow_type: Literal["control", "object"] = "control"
+    label_offset: dict | None = None
+
+
+class SwimlaneRequest(BaseModel):
+    title: str
+    lanes: list[SwimlaneLane]
+    initial_node: SwimlaneNode
+    activity_final_node: SwimlaneNode
+    actions: list[SwimlaneAction] = []
+    flows: list[SwimlaneFlow] = []
+    layout: dict | None = None
+
+    @model_validator(mode="after")
+    def check_referential_integrity(self) -> "SwimlaneRequest":
+        lane_ids = {lane.id for lane in self.lanes}
+        for special in (self.initial_node, self.activity_final_node):
+            if special.lane_id not in lane_ids:
+                raise ValueError(
+                    f"node '{special.id}' has lane_id '{special.lane_id}' not in lanes"
+                )
+        for action in self.actions:
+            if action.lane_id not in lane_ids:
+                raise ValueError(
+                    f"action '{action.id}' has lane_id '{action.lane_id}' not in lanes"
+                )
+        node_ids = (
+            {self.initial_node.id, self.activity_final_node.id}
+            | {a.id for a in self.actions}
+        )
+        for flow in self.flows:
+            if flow.source not in node_ids:
+                raise ValueError(f"flow '{flow.id}' source '{flow.source}' is not a known node id")
+            if flow.target not in node_ids:
+                raise ValueError(f"flow '{flow.id}' target '{flow.target}' is not a known node id")
+        return self
+
+
 # ── Flows ──────────────────────────────────────────────────────────────────────
 
 class ProjectFlowCreate(BaseModel):
@@ -133,3 +201,15 @@ class ProjectFlowResponse(BaseModel):
     actions: list[ProjectFlowActionResponse] = []
     created_at: datetime
     updated_at: datetime
+
+    # FE compatibility — FE still uses title/order field names
+    @computed_field
+    @property
+    def title(self) -> str:
+        return self.name
+
+    order: int = 0
+
+
+class ProjectFlowDetailResponse(ProjectFlowResponse):
+    swimlane: dict | None = None

@@ -14,6 +14,7 @@ from app.schemas.project_business import (
     ProjectFlowActionResponse,
     ProjectFlowActionUpdate,
     ProjectFlowCreate,
+    ProjectFlowDetailResponse,
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
@@ -22,6 +23,7 @@ from app.schemas.project_business import (
     ProjectRuleCreate,
     ProjectRuleResponse,
     ProjectRuleUpdate,
+    SwimlaneRequest,
 )
 
 
@@ -107,6 +109,39 @@ class ProjectBusinessService:
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
         await self.db.delete(obj)
+
+    async def get_flow(self, project_id: uuid.UUID, flow_id: uuid.UUID) -> ProjectFlowDetailResponse:
+        result = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.id == flow_id, ProjectFlow.project_id == project_id)
+            .options(selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules))
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
+        return ProjectFlowDetailResponse.model_validate(obj)
+
+    async def update_swimlane(
+        self, project_id: uuid.UUID, flow_id: uuid.UUID, payload: SwimlaneRequest
+    ) -> ProjectFlowDetailResponse:
+        result = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.id == flow_id, ProjectFlow.project_id == project_id)
+            .options(selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules))
+        )
+        flow = result.scalar_one_or_none()
+        if not flow:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
+        data = payload.model_dump(mode="json")
+        data["id"] = str(flow_id)
+        flow.swimlane = data
+        await self.db.flush()
+        refreshed = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.id == flow_id)
+            .options(selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules))
+        )
+        return ProjectFlowDetailResponse.model_validate(refreshed.scalar_one())
 
     # ── Flow Actions ─────────────────────────────────────────────────────────
 

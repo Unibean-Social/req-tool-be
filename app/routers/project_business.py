@@ -20,6 +20,7 @@ from app.schemas.project_business import (
     ProjectFlowActionResponse,
     ProjectFlowActionUpdate,
     ProjectFlowCreate,
+    ProjectFlowDetailResponse,
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
@@ -28,6 +29,7 @@ from app.schemas.project_business import (
     ProjectRuleCreate,
     ProjectRuleResponse,
     ProjectRuleUpdate,
+    SwimlaneRequest,
 )
 from app.schemas.response import ApiResponse
 from app.services.project_business_service import ProjectBusinessService
@@ -125,6 +127,29 @@ async def delete_flow(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_flow(project_id, flow_id)
+
+
+@router.get("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowDetailResponse])
+async def get_flow(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.get_flow(project_id, flow_id))
+
+
+@router.put("/flows/{flow_id}/swimlane", response_model=ApiResponse[ProjectFlowDetailResponse])
+async def update_flow_swimlane(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    body: SwimlaneRequest,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_swimlane(project_id, flow_id, body))
 
 
 # ── Flow Actions ──────────────────────────────────────────────────────────────
