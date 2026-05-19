@@ -416,30 +416,31 @@ async def seed():
                 {"id": f"lane-{sh_acc.id}", "title": "Kế toán / Hệ thống"},
                 {"id": f"lane-{sh_pm.id}", "title": "Approver (Quản lý)"},
             ],
-            "initial_node": {"id": "start", "lane_id": f"lane-{sh_po.id}", "y": 50},
-            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_acc.id}", "y": 1460},
+            # Lane x centers (lane width=300): Requester=150, Kế toán=450, Approver=750
+            "initial_node": {"id": "start", "lane_id": f"lane-{sh_po.id}", "x": 150, "y": 50},
+            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_acc.id}", "x": 450, "y": 1460},
             "actions": [
                 # Spacing rule: action→next +140, decision→next +150, fork/join→next +100, merge→next +120, objectNode→next +140
                 # order=1: action y=150
-                {"id": str(a[0].id), "lane_id": f"lane-{sh_po.id}",   "notation": "action",    "index": 0, "y": 150,  "label": a[0].description,                                 "width": 200, "height": 60},
+                {"id": str(a[0].id), "lane_id": f"lane-{sh_po.id}",   "notation": "action",    "index": 0, "x": 150, "y": 150,  "label": a[0].description,                                 "width": 200, "height": 60},
                 # order=2: decision y=290 (+140)
-                {"id": str(a[1].id), "lane_id": f"lane-{sh_po.id}",   "notation": "decision",  "index": 1, "y": 290,  "label": "Nhà cung cấp có trong danh sách phê duyệt?",      "width": 160, "height": 80},
+                {"id": str(a[1].id), "lane_id": f"lane-{sh_po.id}",   "notation": "decision",  "index": 1, "x": 150, "y": 290,  "label": "Nhà cung cấp có trong danh sách phê duyệt?",      "width": 160, "height": 80},
                 # order=3: fork y=440 (+150)
-                {"id": str(a[2].id), "lane_id": f"lane-{sh_po.id}",   "notation": "fork",      "index": 2, "y": 440,  "label": "Fork: Gửi đơn & Gửi notification song song",      "width": 160, "height": 20},
+                {"id": str(a[2].id), "lane_id": f"lane-{sh_po.id}",   "notation": "fork",      "index": 2, "x": 150, "y": 440,  "label": "Fork: Gửi đơn & Gửi notification song song",      "width": 160, "height": 20},
                 # order=4: decision y=540 (+100)
-                {"id": str(a[3].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "decision",  "index": 3, "y": 540,  "label": "Ngân sách còn đủ?",                               "width": 160, "height": 80},
+                {"id": str(a[3].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "decision",  "index": 3, "x": 450, "y": 540,  "label": "Ngân sách còn đủ?",                               "width": 160, "height": 80},
                 # order=5: join y=690 (+150)
-                {"id": str(a[4].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "join",      "index": 4, "y": 690,  "label": "Join: Đồng bộ kết quả kiểm tra ngân sách",        "width": 160, "height": 20},
+                {"id": str(a[4].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "join",      "index": 4, "x": 750, "y": 690,  "label": "Join: Đồng bộ kết quả kiểm tra ngân sách",        "width": 160, "height": 20},
                 # order=6: action y=790 (+100)
-                {"id": str(a[5].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 5, "y": 790,  "label": a[5].description,                                 "width": 200, "height": 60},
+                {"id": str(a[5].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 5, "x": 750, "y": 790,  "label": a[5].description,                                 "width": 200, "height": 60},
                 # order=7: decision y=930 (+140)
-                {"id": str(a[6].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "decision",  "index": 6, "y": 930,  "label": "Giá trị > 50 triệu VND?",                        "width": 160, "height": 80},
+                {"id": str(a[6].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "decision",  "index": 6, "x": 750, "y": 930,  "label": "Giá trị > 50 triệu VND?",                        "width": 160, "height": 80},
                 # order=8: action y=1080 (+150)
-                {"id": str(a[7].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 7, "y": 1080, "label": a[7].description,                                 "width": 200, "height": 60},
+                {"id": str(a[7].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 7, "x": 750, "y": 1080, "label": a[7].description,                                 "width": 200, "height": 60},
                 # order=9: merge y=1220 (+140)
-                {"id": str(a[8].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "merge",     "index": 8, "y": 1220, "label": "Merge: Hợp nhất luồng duyệt",                    "width": 120, "height": 30},
+                {"id": str(a[8].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "merge",     "index": 8, "x": 450, "y": 1220, "label": "Merge: Hợp nhất luồng duyệt",                    "width": 120, "height": 30},
                 # order=10: objectNode y=1320 (+100)
-                {"id": str(a[9].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "objectNode","index": 9, "y": 1320, "label": "SAP B1 Purchase Order [đã tạo]",                 "width": 180, "height": 70},
+                {"id": str(a[9].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "objectNode","index": 9, "x": 450, "y": 1320, "label": "SAP B1 Purchase Order [đã tạo]",                 "width": 180, "height": 70},
             ],
             "flows": [
                 {"id": "f-start-a0", "source": "start", "target": str(a[0].id), "flow_type": "control"},
@@ -500,17 +501,18 @@ async def seed():
                 {"id": f"lane-{sh_wh.id}", "title": "Warehouse Staff (Kho)"},
                 {"id": f"lane-{sh_acc.id}", "title": "Accountant (Kế toán)"},
             ],
-            "initial_node": {"id": "start", "lane_id": f"lane-{sh_wh.id}", "y": 50},
-            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_wh.id}", "y": 1340},
+            # Lane x centers (lane width=300): Kho=150, Kế toán=450
+            "initial_node": {"id": "start", "lane_id": f"lane-{sh_wh.id}", "x": 150, "y": 50},
+            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_wh.id}", "x": 150, "y": 1340},
             "actions": [
-                {"id": str(b[0].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 0, "y": 150,  "label": b[0].description,               "width": 200, "height": 60},
-                {"id": str(b[1].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 1, "y": 290,  "label": b[1].description,               "width": 200, "height": 60},
-                {"id": str(b[2].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "decision",  "index": 2, "y": 430,  "label": "Hàng có sai lệch (thiếu/hỏng)?","width": 160, "height": 80},
-                {"id": str(b[3].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 3, "y": 600,  "label": b[3].description,               "width": 200, "height": 60},
-                {"id": str(b[4].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 4, "y": 750,  "label": b[4].description,               "width": 200, "height": 60},
-                {"id": str(b[5].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 5, "y": 890,  "label": b[5].description,               "width": 200, "height": 60},
-                {"id": str(b[6].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode","index": 6, "y": 1040, "label": "Bản ghi kế toán [hoàn tất]",    "width": 180, "height": 70},
-                {"id": str(b[7].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 7, "y": 1190, "label": b[7].description,               "width": 200, "height": 60},
+                {"id": str(b[0].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 0, "x": 150, "y": 150,  "label": b[0].description,               "width": 200, "height": 60},
+                {"id": str(b[1].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 1, "x": 150, "y": 290,  "label": b[1].description,               "width": 200, "height": 60},
+                {"id": str(b[2].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "decision",  "index": 2, "x": 150, "y": 430,  "label": "Hàng có sai lệch (thiếu/hỏng)?","width": 160, "height": 80},
+                {"id": str(b[3].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 3, "x": 150, "y": 600,  "label": b[3].description,               "width": 200, "height": 60},
+                {"id": str(b[4].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 4, "x": 450, "y": 750,  "label": b[4].description,               "width": 200, "height": 60},
+                {"id": str(b[5].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 5, "x": 450, "y": 890,  "label": b[5].description,               "width": 200, "height": 60},
+                {"id": str(b[6].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode","index": 6, "x": 450, "y": 1040, "label": "Bản ghi kế toán [hoàn tất]",    "width": 180, "height": 70},
+                {"id": str(b[7].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 7, "x": 150, "y": 1190, "label": b[7].description,               "width": 200, "height": 60},
             ],
             "flows": [
                 {"id": "f-start-b0", "source": "start",    "target": str(b[0].id), "flow_type": "control"},
