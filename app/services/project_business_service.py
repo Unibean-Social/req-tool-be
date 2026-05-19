@@ -109,8 +109,10 @@ class ProjectBusinessService:
     async def create_rule(self, project_id: uuid.UUID, body: ProjectRuleCreate) -> ProjectRuleResponse:
         obj = ProjectRule(
             project_id=project_id,
-            description=body.description,
-            linked_feature_id=body.linked_feature_id,
+            rule_def=body.rule_def,
+            type=body.type,
+            is_dynamic=body.is_dynamic,
+            source=body.source,
         )
         self.db.add(obj)
         await self.db.flush()
@@ -131,10 +133,14 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy rule")
-        if body.description is not None:
-            obj.description = body.description
-        if body.linked_feature_id is not None:
-            obj.linked_feature_id = body.linked_feature_id
+        if body.rule_def is not None:
+            obj.rule_def = body.rule_def
+        if body.type is not None:
+            obj.type = body.type
+        if body.is_dynamic is not None:
+            obj.is_dynamic = body.is_dynamic
+        if body.source is not None:
+            obj.source = body.source
         return ProjectRuleResponse.model_validate(obj)
 
     async def delete_rule(self, project_id: uuid.UUID, rule_id: uuid.UUID) -> None:

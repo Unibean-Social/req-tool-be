@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.models.project_business import RuleType
+
 
 class ProjectGoalCreate(BaseModel):
     description: str
@@ -50,13 +52,17 @@ class ProjectFlowResponse(BaseModel):
 
 
 class ProjectRuleCreate(BaseModel):
-    description: str
-    linked_feature_id: uuid.UUID | None = None
+    rule_def: str
+    type: RuleType
+    is_dynamic: bool = False
+    source: str | None = None
 
 
 class ProjectRuleUpdate(BaseModel):
-    description: str | None = None
-    linked_feature_id: uuid.UUID | None = None
+    rule_def: str | None = None
+    type: RuleType | None = None
+    is_dynamic: bool | None = None
+    source: str | None = None
 
 
 class ProjectRuleResponse(BaseModel):
@@ -64,7 +70,9 @@ class ProjectRuleResponse(BaseModel):
 
     id: uuid.UUID
     project_id: uuid.UUID
-    description: str
-    linked_feature_id: uuid.UUID | None
+    rule_def: str
+    type: RuleType
+    is_dynamic: bool
+    source: str | None
     created_at: datetime
     updated_at: datetime

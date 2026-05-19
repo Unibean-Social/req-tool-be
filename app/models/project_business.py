@@ -1,10 +1,24 @@
+import enum
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import AuditMixin, Base
+
+
+class RuleType(str, enum.Enum):
+    constraint = "constraint"
+    calculation = "calculation"
+    validation = "validation"
+    process = "process"
+    policy = "policy"
+    regulation = "regulation"
+
+
+_rule_type = SAEnum(RuleType, name="ruletype")
 
 
 class ProjectGoal(AuditMixin, Base):
@@ -38,10 +52,9 @@ class ProjectRule(AuditMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    linked_feature_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("features.id", ondelete="SET NULL"), nullable=True
-    )
+    rule_def: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[RuleType] = mapped_column(_rule_type, nullable=False)
+    is_dynamic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="rules")  # noqa: F821
-    linked_feature: Mapped["Feature"] = relationship()  # noqa: F821
