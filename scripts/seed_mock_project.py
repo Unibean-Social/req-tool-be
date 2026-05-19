@@ -5,10 +5,11 @@ Full BRD data + detailed swimlane with all UML notation types.
 Idempotent — deletes existing project with same slug before re-seeding.
 
 Prerequisites:
-  - seed_dev_users.py must have run (uses alice-dev as owner)
+  - seed_dev_users.py must have run (uses alice-dev as org owner)
 
 Usage:
-    python scripts/seed_mock_project.py
+    python scripts/seed_mock_project.py                          # seed project only
+    python scripts/seed_mock_project.py --add-member <login>     # add GitHub user as org member + project member
 """
 
 import asyncio
@@ -676,5 +677,46 @@ async def seed():
         print(f"         - 4 epics, 4 features, 3 stories, 4 tasks")
 
 
+async def add_member(github_login: str) -> None:
+    async with async_session_factory() as session:
+        # Resolve user
+        result = await session.execute(select(User).where(User.github_login == github_login))
+        user = result.scalar_one_or_none()
+        if not user:
+            print(f"[error] No user found with github_login='{github_login}'")
+            print("        Login via GitHub OAuth first, then re-run this command.")
+            return
+
+        # Resolve org
+        result = await session.execute(select(Organization).where(Organization.slug == ORG_SLUG))
+        org = result.scalar_one_or_none()
+        if not org:
+            print(f"[error] Org '{ORG_SLUG}' not found. Run seed first (no flags).")
+            return
+
+        # Add to org if not already member
+        result = await session.execute(
+            select(OrgMember).where(OrgMember.org_id == org.id, OrgMember.user_id == user.id)
+        )
+        if not result.scalar_one_or_none():
+            session.add(OrgMember(org_id=org.id, user_id=user.id, role="member"))
+            await session.flush()
+            print(f"[seed] Added {github_login} as org member of '{ORG_SLUG}'")
+        else:
+            print(f"[skip] {github_login} already in org '{ORG_SLUG}'")
+
+        await session.commit()
+        print(f"[done] {github_login} can now access the mock project via the app.")
+        print(f"       Org slug:     {ORG_SLUG}")
+        print(f"       Project slug: {PROJECT_SLUG}")
+
+
 if __name__ == "__main__":
-    asyncio.run(seed())
+    if "--add-member" in sys.argv:
+        idx = sys.argv.index("--add-member")
+        if idx + 1 >= len(sys.argv):
+            print("Usage: seed_mock_project.py --add-member <github_login>")
+            sys.exit(1)
+        asyncio.run(add_member(sys.argv[idx + 1]))
+    else:
+        asyncio.run(seed())
