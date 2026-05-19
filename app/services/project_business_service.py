@@ -7,8 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.models.project_business import ProjectFlow, ProjectFlowAction, ProjectGoal, ProjectRule
 from app.models.stakeholder import Stakeholder
+from app.utils.notation_detector import detect_notation
+
+_Y_START = 150
+_Y_STEP = 120
+_DEFAULT_LANE = "lane-default"
 from app.schemas.project_business import (
     ProjectFlowActionCreate,
     ProjectFlowActionResponse,
@@ -69,12 +75,25 @@ class ProjectBusinessService:
 
     # ── Flows ────────────────────────────────────────────────────────────────
 
-    async def create_flow(self, project_id: uuid.UUID, body: ProjectFlowCreate) -> ProjectFlowResponse:
+    async def create_flow(self, project_id: uuid.UUID, body: ProjectFlowCreate) -> ProjectFlowDetailResponse:
         obj = ProjectFlow(project_id=project_id, code=body.code, name=body.name, description=body.description)
         self.db.add(obj)
         await self.db.flush()
-        await self.db.refresh(obj, ["actions"])
-        return ProjectFlowResponse.model_validate(obj)
+
+        if body.actions:
+            actor_ids = {item.actor_id for item in body.actions if item.actor_id is not None}
+            for actor_id in actor_ids:
+                await self._validate_actor_in_project(project_id, actor_id)
+            self.db.add_all([
+                ProjectFlowAction(flow_id=obj.id, order=item.order, description=item.description, actor_id=item.actor_id)
+                for item in body.actions
+            ])
+            await self.db.flush()
+
+        flow = await self._load_flow_for_swimlane(obj.id)
+        if body.actions:
+            await self._auto_generate_swimlane(flow)
+        return ProjectFlowDetailResponse.model_validate(flow)
 
     async def list_flows(self, project_id: uuid.UUID) -> list[ProjectFlowResponse]:
         result = await self.db.execute(
@@ -132,8 +151,38 @@ class ProjectBusinessService:
         flow = result.scalar_one_or_none()
         if not flow:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
+
+        action_map = {a.id: a for a in flow.actions}
+        unknown = {item.id for item in payload.actions} - set(action_map.keys())
+        if unknown:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"action IDs không thuộc flow này: {[str(u) for u in unknown]}",
+            )
+
+        enriched_actions = []
+        for item in payload.actions:
+            db_action = action_map[item.id]
+            notation = await detect_notation(
+                db_action.description or "",
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
+            enriched_actions.append({
+                "id": str(item.id),
+                "lane_id": item.lane_id,
+                "notation": notation,
+                "index": item.index,
+                "y": item.y,
+                "label": db_action.description or "",
+            })
+
         data = payload.model_dump(mode="json")
         data["id"] = str(flow_id)
+        data["actions"] = enriched_actions
+
         flow.swimlane = data
         await self.db.flush()
         refreshed = await self.db.execute(
@@ -154,6 +203,76 @@ class ProjectBusinessService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
         return flow
 
+    async def _load_flow_for_swimlane(self, flow_id: uuid.UUID) -> ProjectFlow:
+        result = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.id == flow_id)
+            .options(
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules),
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor),
+            )
+        )
+        return result.scalar_one()
+
+    async def _auto_generate_swimlane(self, flow: ProjectFlow) -> None:
+        sorted_actions = sorted(flow.actions, key=lambda a: a.order)
+
+        seen: dict[str, str] = {}
+        for action in sorted_actions:
+            if action.actor_id:
+                lid = f"lane-{action.actor_id}"
+                if lid not in seen:
+                    seen[lid] = action.actor.name if action.actor else lid
+            else:
+                if _DEFAULT_LANE not in seen:
+                    seen[_DEFAULT_LANE] = "Chung"
+        if not seen:
+            seen[_DEFAULT_LANE] = "Chung"
+
+        first_lane = next(iter(seen))
+        lane_list = [{"id": lid, "title": title} for lid, title in seen.items()]
+        initial_node = {"id": "start", "lane_id": first_lane, "y": 50}
+
+        node_seq = ["start"]
+        enriched_actions = []
+        for i, action in enumerate(sorted_actions):
+            notation = await detect_notation(
+                action.description or "",
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
+            lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
+            enriched_actions.append({
+                "id": str(action.id),
+                "lane_id": lane_id,
+                "notation": notation,
+                "index": i,
+                "y": _Y_START + i * _Y_STEP,
+                "label": action.description or "",
+            })
+            node_seq.append(str(action.id))
+
+        node_seq.append("end")
+        activity_final_node = {"id": "end", "lane_id": first_lane, "y": _Y_START + len(sorted_actions) * _Y_STEP}
+
+        control_flows = [
+            {"id": f"f-{node_seq[j]}-{node_seq[j + 1]}", "source": node_seq[j], "target": node_seq[j + 1], "flow_type": "control"}
+            for j in range(len(node_seq) - 1)
+        ]
+
+        flow.swimlane = {
+            "id": str(flow.id),
+            "title": flow.name,
+            "lanes": lane_list,
+            "initial_node": initial_node,
+            "activity_final_node": activity_final_node,
+            "actions": enriched_actions,
+            "flows": control_flows,
+            "layout": None,
+        }
+
     async def _validate_actor_in_project(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         result = await self.db.execute(
             select(Stakeholder).where(Stakeholder.id == actor_id, Stakeholder.project_id == project_id)
@@ -161,17 +280,33 @@ class ProjectBusinessService:
         if not result.scalar_one_or_none():
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="actor_id không thuộc project này")
 
-    async def create_flow_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, body: ProjectFlowActionCreate) -> ProjectFlowActionResponse:
+    async def create_flow_actions(
+        self, project_id: uuid.UUID, flow_id: uuid.UUID, items: list[ProjectFlowActionCreate]
+    ) -> list[ProjectFlowActionResponse]:
         await self._get_flow_in_project(project_id, flow_id)
-        if body.actor_id is not None:
-            await self._validate_actor_in_project(project_id, body.actor_id)
-        obj = ProjectFlowAction(
-            flow_id=flow_id, order=body.order, description=body.description, actor_id=body.actor_id
-        )
-        self.db.add(obj)
+        actor_ids = {item.actor_id for item in items if item.actor_id is not None}
+        for actor_id in actor_ids:
+            await self._validate_actor_in_project(project_id, actor_id)
+        objs = [
+            ProjectFlowAction(
+                flow_id=flow_id, order=item.order, description=item.description, actor_id=item.actor_id
+            )
+            for item in items
+        ]
+        self.db.add_all(objs)
         await self.db.flush()
-        await self.db.refresh(obj, ["rules"])
-        return ProjectFlowActionResponse.model_validate(obj)
+
+        flow = await self._load_flow_for_swimlane(flow_id)
+        await self._auto_generate_swimlane(flow)
+
+        ids = [obj.id for obj in objs]
+        result = await self.db.execute(
+            select(ProjectFlowAction)
+            .where(ProjectFlowAction.id.in_(ids))
+            .options(selectinload(ProjectFlowAction.rules))
+            .order_by(ProjectFlowAction.order)
+        )
+        return [ProjectFlowActionResponse.model_validate(o) for o in result.scalars().all()]
 
     async def update_flow_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID, body: ProjectFlowActionUpdate) -> ProjectFlowActionResponse:
         await self._get_flow_in_project(project_id, flow_id)
@@ -192,6 +327,10 @@ class ProjectBusinessService:
                 await self._validate_actor_in_project(project_id, body.actor_id)
             obj.actor_id = body.actor_id
         await self.db.flush()
+
+        flow = await self._load_flow_for_swimlane(flow_id)
+        await self._auto_generate_swimlane(flow)
+
         result2 = await self.db.execute(
             select(ProjectFlowAction)
             .where(ProjectFlowAction.id == action_id)
@@ -209,6 +348,10 @@ class ProjectBusinessService:
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow action")
         await self.db.delete(obj)
+        await self.db.flush()
+
+        flow = await self._load_flow_for_swimlane(flow_id)
+        await self._auto_generate_swimlane(flow)
 
     async def add_rule_to_action(self, project_id: uuid.UUID, flow_id: uuid.UUID, action_id: uuid.UUID, rule_id: uuid.UUID) -> ProjectFlowActionResponse:
         await self._get_flow_in_project(project_id, flow_id)

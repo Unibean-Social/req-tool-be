@@ -34,12 +34,12 @@ from app.schemas.project_business import (
 from app.schemas.response import ApiResponse
 from app.services.project_business_service import ProjectBusinessService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["business-context"])
+router = APIRouter(prefix="/projects/{project_id}")
 
 
 # ── Goals ─────────────────────────────────────────────────────────────────────
 
-@router.post("/goals", response_model=ApiResponse[ProjectGoalResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/goals", response_model=ApiResponse[ProjectGoalResponse], status_code=status.HTTP_201_CREATED, tags=["Project Goals"])
 async def create_goal(
     project_id: uuid.UUID,
     body: ProjectGoalCreate,
@@ -50,7 +50,7 @@ async def create_goal(
     return created(await service.create_goal(project_id, body))
 
 
-@router.get("/goals", response_model=ApiResponse[list[ProjectGoalResponse]])
+@router.get("/goals", response_model=ApiResponse[list[ProjectGoalResponse]], tags=["Project Goals"])
 async def list_goals(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -60,7 +60,7 @@ async def list_goals(
     return ok(await service.list_goals(project_id))
 
 
-@router.patch("/goals/{goal_id}", response_model=ApiResponse[ProjectGoalResponse])
+@router.patch("/goals/{goal_id}", response_model=ApiResponse[ProjectGoalResponse], tags=["Project Goals"])
 async def update_goal(
     project_id: uuid.UUID,
     goal_id: uuid.UUID,
@@ -72,7 +72,7 @@ async def update_goal(
     return ok(await service.update_goal(project_id, goal_id, body))
 
 
-@router.delete("/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Project Goals"])
 async def delete_goal(
     project_id: uuid.UUID,
     goal_id: uuid.UUID,
@@ -85,7 +85,7 @@ async def delete_goal(
 
 # ── Flows ─────────────────────────────────────────────────────────────────────
 
-@router.post("/flows", response_model=ApiResponse[ProjectFlowResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/flows", response_model=ApiResponse[ProjectFlowDetailResponse], status_code=status.HTTP_201_CREATED, tags=["Project Flows"])
 async def create_flow(
     project_id: uuid.UUID,
     body: ProjectFlowCreate,
@@ -96,7 +96,7 @@ async def create_flow(
     return created(await service.create_flow(project_id, body))
 
 
-@router.get("/flows", response_model=ApiResponse[list[ProjectFlowResponse]])
+@router.get("/flows", response_model=ApiResponse[list[ProjectFlowResponse]], tags=["Project Flows"])
 async def list_flows(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -106,7 +106,7 @@ async def list_flows(
     return ok(await service.list_flows(project_id))
 
 
-@router.patch("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowResponse])
+@router.patch("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowResponse], tags=["Project Flows"])
 async def update_flow(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -118,7 +118,7 @@ async def update_flow(
     return ok(await service.update_flow(project_id, flow_id, body))
 
 
-@router.delete("/flows/{flow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/flows/{flow_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Project Flows"])
 async def delete_flow(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -129,7 +129,7 @@ async def delete_flow(
     await service.delete_flow(project_id, flow_id)
 
 
-@router.get("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowDetailResponse])
+@router.get("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowDetailResponse], tags=["Project Flows"])
 async def get_flow(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -140,7 +140,7 @@ async def get_flow(
     return ok(await service.get_flow(project_id, flow_id))
 
 
-@router.put("/flows/{flow_id}/swimlane", response_model=ApiResponse[ProjectFlowDetailResponse])
+@router.put("/flows/{flow_id}/swimlane", response_model=ApiResponse[ProjectFlowDetailResponse], tags=["Project Flows"])
 async def update_flow_swimlane(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -154,19 +154,19 @@ async def update_flow_swimlane(
 
 # ── Flow Actions ──────────────────────────────────────────────────────────────
 
-@router.post("/flows/{flow_id}/actions", response_model=ApiResponse[ProjectFlowActionResponse], status_code=status.HTTP_201_CREATED)
-async def create_flow_action(
+@router.post("/flows/{flow_id}/actions", response_model=ApiResponse[list[ProjectFlowActionResponse]], status_code=status.HTTP_201_CREATED, tags=["Flow Actions"])
+async def create_flow_actions(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
-    body: ProjectFlowActionCreate,
+    body: list[ProjectFlowActionCreate],
     user: User = Depends(current_user),
     service: ProjectBusinessService = Depends(get_project_business_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return created(await service.create_flow_action(project_id, flow_id, body))
+    return created(await service.create_flow_actions(project_id, flow_id, body))
 
 
-@router.patch("/flows/{flow_id}/actions/{action_id}", response_model=ApiResponse[ProjectFlowActionResponse])
+@router.patch("/flows/{flow_id}/actions/{action_id}", response_model=ApiResponse[ProjectFlowActionResponse], tags=["Flow Actions"])
 async def update_flow_action(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -179,7 +179,7 @@ async def update_flow_action(
     return ok(await service.update_flow_action(project_id, flow_id, action_id, body))
 
 
-@router.delete("/flows/{flow_id}/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/flows/{flow_id}/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Flow Actions"])
 async def delete_flow_action(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -191,7 +191,7 @@ async def delete_flow_action(
     await service.delete_flow_action(project_id, flow_id, action_id)
 
 
-@router.post("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", response_model=ApiResponse[ProjectFlowActionResponse])
+@router.post("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", response_model=ApiResponse[ProjectFlowActionResponse], tags=["Flow Actions"])
 async def add_rule_to_action(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -204,7 +204,7 @@ async def add_rule_to_action(
     return ok(await service.add_rule_to_action(project_id, flow_id, action_id, rule_id))
 
 
-@router.delete("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/flows/{flow_id}/actions/{action_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Flow Actions"])
 async def remove_rule_from_action(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
@@ -219,7 +219,7 @@ async def remove_rule_from_action(
 
 # ── Rules ─────────────────────────────────────────────────────────────────────
 
-@router.post("/rules", response_model=ApiResponse[ProjectRuleResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/rules", response_model=ApiResponse[ProjectRuleResponse], status_code=status.HTTP_201_CREATED, tags=["Business Rules"])
 async def create_rule(
     project_id: uuid.UUID,
     body: ProjectRuleCreate,
@@ -230,7 +230,7 @@ async def create_rule(
     return created(await service.create_rule(project_id, body))
 
 
-@router.get("/rules", response_model=ApiResponse[list[ProjectRuleResponse]])
+@router.get("/rules", response_model=ApiResponse[list[ProjectRuleResponse]], tags=["Business Rules"])
 async def list_rules(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -240,7 +240,7 @@ async def list_rules(
     return ok(await service.list_rules(project_id))
 
 
-@router.patch("/rules/{rule_id}", response_model=ApiResponse[ProjectRuleResponse])
+@router.patch("/rules/{rule_id}", response_model=ApiResponse[ProjectRuleResponse], tags=["Business Rules"])
 async def update_rule(
     project_id: uuid.UUID,
     rule_id: uuid.UUID,
@@ -252,7 +252,7 @@ async def update_rule(
     return ok(await service.update_rule(project_id, rule_id, body))
 
 
-@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Business Rules"])
 async def delete_rule(
     project_id: uuid.UUID,
     rule_id: uuid.UUID,
@@ -265,7 +265,7 @@ async def delete_rule(
 
 # ── Setup Progress ────────────────────────────────────────────────────────────
 
-@router.get("/setup-progress")
+@router.get("/setup-progress", tags=["Project Setup"])
 async def get_setup_progress(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
@@ -311,7 +311,7 @@ async def get_setup_progress(
     })
 
 
-@router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]])
+@router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]], tags=["Project Setup"])
 async def get_staleness_warnings(
     project_id: uuid.UUID,
     user: User = Depends(current_user),

@@ -123,9 +123,8 @@ class SwimlaneNode(BaseModel):
 
 
 class SwimlaneAction(BaseModel):
-    id: str
+    id: uuid.UUID  # must reference an existing ProjectFlowAction.id
     lane_id: str
-    label: str
     notation: Literal["action", "objectNode", "decision", "merge", "fork", "join"] = "action"
     index: int | None = None
     y: float
@@ -166,7 +165,7 @@ class SwimlaneRequest(BaseModel):
                 )
         node_ids = (
             {self.initial_node.id, self.activity_final_node.id}
-            | {a.id for a in self.actions}
+            | {str(a.id) for a in self.actions}
         )
         for flow in self.flows:
             if flow.source not in node_ids:
@@ -182,6 +181,7 @@ class ProjectFlowCreate(BaseModel):
     code: str
     name: str
     description: str | None = None
+    actions: list["ProjectFlowActionCreate"] = []
 
 
 class ProjectFlowUpdate(BaseModel):

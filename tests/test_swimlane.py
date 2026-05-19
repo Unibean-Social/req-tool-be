@@ -2,13 +2,18 @@
 Swimlane diagram storage feature tests.
 
 Covers:
-- GET /flows/{flow_id} detail — swimlane null on fresh flow, title==name, order==0
+- GET /flows/{flow_id} detail — swimlane null on fresh flow with no actions, title==name, order==0
+- POST /flows/{flow_id}/actions — swimlane auto-generated with correct structure
 - PUT /flows/{flow_id}/swimlane with valid minimal payload → 200, blob echoed with id
 - PUT with action.lane_id not in lanes[].id → 422
+- PUT with action.id not in flow's ProjectFlowAction → 422
 - PUT with flow.source referencing unknown node id → 422
 - GET /flows list items contain title/order but NOT swimlane key
-- Full round-trip: PUT with actions/flows, then GET detail verifies persistence
+- Full round-trip: PUT with actions/flows (using real action IDs), then GET detail verifies
+  label auto-populated from ProjectFlowAction.description
 """
+import uuid
+
 import pytest
 
 from tests.conftest import BASE
@@ -35,6 +40,16 @@ async def _create_flow(client, h, pid, code="FL-01", name="My Flow"):
     return r.json()["data"]
 
 
+async def _create_action(client, h, pid, flow_id, description="Actor does something.", order=0):
+    r = await client.post(
+        f"{BASE}/projects/{pid}/flows/{flow_id}/actions",
+        json=[{"order": order, "description": description}],
+        headers=h,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["data"][0]
+
+
 def _minimal_swimlane_payload(title: str = "Test Swimlane") -> dict:
     """Minimal valid SwimlaneRequest: 1 lane, initial node, final node, no actions, no flows."""
     return {
@@ -44,42 +59,6 @@ def _minimal_swimlane_payload(title: str = "Test Swimlane") -> dict:
         "activity_final_node": {"id": "final-1", "lane_id": "lane-1", "y": 500.0},
         "actions": [],
         "flows": [],
-    }
-
-
-def _full_swimlane_payload() -> dict:
-    """Full SwimlaneRequest with actions and flows."""
-    return {
-        "title": "Full Flow",
-        "lanes": [
-            {"id": "lane-1", "title": "User"},
-            {"id": "lane-2", "title": "System"},
-        ],
-        "initial_node": {"id": "init-1", "lane_id": "lane-1", "y": 50.0},
-        "activity_final_node": {"id": "final-1", "lane_id": "lane-2", "y": 600.0},
-        "actions": [
-            {
-                "id": "action-1",
-                "lane_id": "lane-1",
-                "label": "User submits form",
-                "notation": "action",
-                "y": 200.0,
-            },
-            {
-                "id": "action-2",
-                "lane_id": "lane-2",
-                "label": "System validates",
-                "notation": "action",
-                "y": 350.0,
-                "index": 1,
-            },
-        ],
-        "flows": [
-            {"id": "flow-1", "source": "init-1", "target": "action-1"},
-            {"id": "flow-2", "source": "action-1", "target": "action-2"},
-            {"id": "flow-3", "source": "action-2", "target": "final-1"},
-        ],
-        "layout": {"zoom": 1.0, "offset": {"x": 0, "y": 0}},
     }
 
 
@@ -97,6 +76,32 @@ async def test_get_flow_detail_fresh_swimlane_null(client):
 
     data = r.json()["data"]
     assert data["swimlane"] is None
+
+
+@pytest.mark.asyncio
+async def test_swimlane_auto_generated_after_create_actions(client):
+    """POST /actions auto-generates swimlane; GET detail returns non-null swimlane."""
+    h, pid = await _setup(client)
+    flow = await _create_flow(client, h, pid, name="Payment Flow")
+
+    await _create_action(client, h, pid, flow["id"], description="User submits payment form.", order=0)
+    await _create_action(client, h, pid, flow["id"], description="Validate card details.", order=1)
+
+    r = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
+    assert r.status_code == 200, r.text
+    sw = r.json()["data"]["swimlane"]
+
+    assert sw is not None
+    assert sw["id"] == flow["id"]
+    assert sw["title"] == "Payment Flow"
+    assert len(sw["lanes"]) >= 1
+    assert sw["initial_node"]["id"] == "start"
+    assert sw["activity_final_node"]["id"] == "end"
+    assert len(sw["actions"]) == 2
+    assert sw["actions"][0]["label"] == "User submits payment form."
+    assert sw["actions"][1]["label"] == "Validate card details."
+    # sequential control flows: start→action0, action0→action1, action1→end
+    assert len(sw["flows"]) == 3
 
 
 @pytest.mark.asyncio
@@ -128,7 +133,7 @@ async def test_get_flow_detail_order_is_zero(client):
 
 @pytest.mark.asyncio
 async def test_put_swimlane_minimal_valid_returns_200(client):
-    """PUT with minimal valid payload → 200, swimlane echoed back."""
+    """PUT with minimal valid payload (no actions) → 200, swimlane echoed back."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Payment Flow")
     payload = _minimal_swimlane_payload()
@@ -184,9 +189,10 @@ async def test_put_swimlane_echoes_title_and_lanes(client):
 
 @pytest.mark.asyncio
 async def test_put_swimlane_invalid_action_lane_id_returns_422(client):
-    """PUT with action.lane_id not in lanes[].id → 422."""
+    """PUT with action.lane_id not in lanes[].id → 422 from Pydantic validator."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
+    action = await _create_action(client, h, pid, flow["id"])
 
     payload = {
         "title": "Bad Lane Ref",
@@ -195,9 +201,38 @@ async def test_put_swimlane_invalid_action_lane_id_returns_422(client):
         "activity_final_node": {"id": "final-1", "lane_id": "lane-1", "y": 500.0},
         "actions": [
             {
-                "id": "action-1",
+                "id": action["id"],
                 "lane_id": "lane-NONEXISTENT",  # not in lanes
-                "label": "Some action",
+                "notation": "action",
+                "y": 200.0,
+            }
+        ],
+        "flows": [],
+    }
+
+    r = await client.put(
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        json=payload,
+        headers=h,
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_put_swimlane_action_id_not_in_flow_returns_422(client):
+    """PUT with action.id that is a valid UUID but not in this flow's actions → 422."""
+    h, pid = await _setup(client)
+    flow = await _create_flow(client, h, pid)
+
+    payload = {
+        "title": "Unknown Action",
+        "lanes": [{"id": "lane-1", "title": "Lane One"}],
+        "initial_node": {"id": "init-1", "lane_id": "lane-1", "y": 100.0},
+        "activity_final_node": {"id": "final-1", "lane_id": "lane-1", "y": 500.0},
+        "actions": [
+            {
+                "id": str(uuid.uuid4()),  # valid UUID but not in this flow
+                "lane_id": "lane-1",
                 "notation": "action",
                 "y": 200.0,
             }
@@ -305,12 +340,34 @@ async def test_list_flows_title_matches_name(client):
 
 @pytest.mark.asyncio
 async def test_full_round_trip_put_then_get(client):
-    """Full round-trip: PUT swimlane with actions and flows, then GET detail verifies persistence."""
+    """Full round-trip: PUT swimlane using real action IDs → GET detail verifies
+    persistence and that label is auto-populated from ProjectFlowAction.description."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Full Flow")
-    payload = _full_swimlane_payload()
 
-    # PUT the full payload
+    act1 = await _create_action(client, h, pid, flow["id"], description="User submits form.", order=0)
+    act2 = await _create_action(client, h, pid, flow["id"], description="System validates.", order=1)
+
+    payload = {
+        "title": "Full Flow",
+        "lanes": [
+            {"id": "lane-1", "title": "User"},
+            {"id": "lane-2", "title": "System"},
+        ],
+        "initial_node": {"id": "init-1", "lane_id": "lane-1", "y": 50.0},
+        "activity_final_node": {"id": "final-1", "lane_id": "lane-2", "y": 600.0},
+        "actions": [
+            {"id": act1["id"], "lane_id": "lane-1", "notation": "action", "y": 200.0},
+            {"id": act2["id"], "lane_id": "lane-2", "notation": "action", "y": 350.0, "index": 1},
+        ],
+        "flows": [
+            {"id": "flow-1", "source": "init-1", "target": act1["id"]},
+            {"id": "flow-2", "source": act1["id"], "target": act2["id"]},
+            {"id": "flow-3", "source": act2["id"], "target": "final-1"},
+        ],
+        "layout": {"zoom": 1.0, "offset": {"x": 0, "y": 0}},
+    }
+
     put_r = await client.put(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
         json=payload,
@@ -318,35 +375,23 @@ async def test_full_round_trip_put_then_get(client):
     )
     assert put_r.status_code == 200, put_r.text
 
-    # GET the detail endpoint
-    get_r = await client.get(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}",
-        headers=h,
-    )
+    get_r = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
     assert get_r.status_code == 200, get_r.text
 
     stored = get_r.json()["data"]["swimlane"]
-    assert stored is not None, "swimlane should be persisted"
-
-    # Verify structure is preserved
+    assert stored is not None
     assert stored["id"] == flow["id"]
     assert stored["title"] == "Full Flow"
     assert len(stored["lanes"]) == 2
     assert len(stored["actions"]) == 2
     assert len(stored["flows"]) == 3
 
-    # Verify action details
-    action_ids = {a["id"] for a in stored["actions"]}
-    assert "action-1" in action_ids
-    assert "action-2" in action_ids
+    # Labels auto-populated from ProjectFlowAction.description
+    action_map = {a["id"]: a for a in stored["actions"]}
+    assert action_map[act1["id"]]["label"] == "User submits form."
+    assert action_map[act2["id"]]["label"] == "System validates."
 
-    # Verify flow edge details
-    flow_ids = {f["id"] for f in stored["flows"]}
-    assert "flow-1" in flow_ids
-    assert "flow-2" in flow_ids
-    assert "flow-3" in flow_ids
-
-    # Verify layout is stored
+    # Layout preserved
     assert stored["layout"] == {"zoom": 1.0, "offset": {"x": 0, "y": 0}}
 
 
@@ -356,7 +401,6 @@ async def test_put_swimlane_is_idempotent(client):
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
-    # First PUT
     first_payload = _minimal_swimlane_payload(title="First Version")
     r1 = await client.put(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
@@ -366,7 +410,6 @@ async def test_put_swimlane_is_idempotent(client):
     assert r1.status_code == 200, r1.text
     assert r1.json()["data"]["swimlane"]["title"] == "First Version"
 
-    # Second PUT with different title
     second_payload = _minimal_swimlane_payload(title="Second Version")
     r2 = await client.put(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
@@ -376,7 +419,6 @@ async def test_put_swimlane_is_idempotent(client):
     assert r2.status_code == 200, r2.text
     assert r2.json()["data"]["swimlane"]["title"] == "Second Version"
 
-    # GET should return the second version
     r3 = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
     assert r3.json()["data"]["swimlane"]["title"] == "Second Version"
 
@@ -384,7 +426,6 @@ async def test_put_swimlane_is_idempotent(client):
 @pytest.mark.asyncio
 async def test_put_swimlane_flow_id_not_found(client):
     """PUT swimlane for a non-existent flow → 404."""
-    import uuid
     h, pid = await _setup(client)
     fake_flow_id = str(uuid.uuid4())
 
@@ -402,7 +443,6 @@ async def test_get_flow_detail_wrong_project_returns_404(client):
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
-    # Create a second project
     org2 = await create_org(client, h)
     proj2 = await create_project(client, h, org2["id"])
 
@@ -419,12 +459,10 @@ async def test_put_swimlane_missing_required_fields_returns_422(client):
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
-    # Missing initial_node and activity_final_node
     incomplete_payload = {
         "title": "Incomplete",
         "lanes": [{"id": "lane-1", "title": "Lane"}],
-        # initial_node missing
-        # activity_final_node missing
+        # initial_node and activity_final_node missing
     }
 
     r = await client.put(
@@ -437,9 +475,11 @@ async def test_put_swimlane_missing_required_fields_returns_422(client):
 
 @pytest.mark.asyncio
 async def test_put_swimlane_action_with_valid_lane_id_succeeds(client):
-    """PUT with action.lane_id correctly referencing a defined lane → 200."""
+    """PUT with real action IDs and valid lane references → 200, labels populated."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
+    act1 = await _create_action(client, h, pid, flow["id"], description="Actor does something.", order=0)
+    act2 = await _create_action(client, h, pid, flow["id"], description="System responds.", order=1)
 
     payload = {
         "title": "Valid Action Lane",
@@ -450,25 +490,13 @@ async def test_put_swimlane_action_with_valid_lane_id_succeeds(client):
         "initial_node": {"id": "init-1", "lane_id": "lane-A", "y": 50.0},
         "activity_final_node": {"id": "final-1", "lane_id": "lane-B", "y": 500.0},
         "actions": [
-            {
-                "id": "act-1",
-                "lane_id": "lane-A",  # valid reference
-                "label": "Actor does something",
-                "notation": "action",
-                "y": 200.0,
-            },
-            {
-                "id": "act-2",
-                "lane_id": "lane-B",  # valid reference
-                "label": "System responds",
-                "notation": "action",
-                "y": 350.0,
-            },
+            {"id": act1["id"], "lane_id": "lane-A", "notation": "action", "y": 200.0},
+            {"id": act2["id"], "lane_id": "lane-B", "notation": "action", "y": 350.0},
         ],
         "flows": [
-            {"id": "f-1", "source": "init-1", "target": "act-1"},
-            {"id": "f-2", "source": "act-1", "target": "act-2"},
-            {"id": "f-3", "source": "act-2", "target": "final-1"},
+            {"id": "f-1", "source": "init-1", "target": act1["id"]},
+            {"id": "f-2", "source": act1["id"], "target": act2["id"]},
+            {"id": "f-3", "source": act2["id"], "target": "final-1"},
         ],
     }
 
@@ -481,6 +509,10 @@ async def test_put_swimlane_action_with_valid_lane_id_succeeds(client):
     stored = r.json()["data"]["swimlane"]
     assert len(stored["actions"]) == 2
     assert len(stored["flows"]) == 3
+    # Labels auto-populated
+    labels = {a["id"]: a["label"] for a in stored["actions"]}
+    assert labels[act1["id"]] == "Actor does something."
+    assert labels[act2["id"]] == "System responds."
 
 
 @pytest.mark.asyncio
