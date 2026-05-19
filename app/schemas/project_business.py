@@ -224,9 +224,10 @@ class SwimlaneFlow(BaseModel):
     id: str
     source: str
     target: str
-    source_handle: str | None = None
-    target_handle: str | None = None
+    source_handle: Literal["top", "bottom", "left", "right"] | None = None
+    target_handle: Literal["top", "bottom", "left", "right"] | None = None
     label: str | None = None
+    guard: str | None = None  # condition text on decision branches
     flow_type: Literal["control", "object"] = "control"
     label_offset: dict | None = None
 

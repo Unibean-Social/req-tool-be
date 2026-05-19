@@ -444,20 +444,20 @@ async def seed():
             "flows": [
                 {"id": "f-start-a0", "source": "start", "target": str(a[0].id), "flow_type": "control"},
                 {"id": f"f-a0-a1", "source": str(a[0].id), "target": str(a[1].id), "flow_type": "control"},
-                # Decision a[1]: approved → fork; rejected → end directly
-                {"id": f"f-a1-a2",    "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control", "guard": "Có trong danh sách"},
-                {"id": f"f-a1-end",   "source": str(a[1].id), "target": "end",        "flow_type": "control", "guard": "Không có → từ chối"},
-                # Fork → budget check lane + join (notification side implicit)
-                {"id": f"f-a2-a3",    "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control"},
-                {"id": f"f-a2-a4",    "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control"},
-                # Budget decision
-                {"id": f"f-a3-a4",    "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control", "guard": "Đủ ngân sách"},
-                {"id": f"f-a3-end",   "source": str(a[3].id), "target": "end",        "flow_type": "control", "guard": "Vượt ngân sách → từ chối"},
+                # Decision a[1]: yes → bottom → fork; no → right → end
+                {"id": f"f-a1-a2",    "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control", "guard": "Có trong danh sách",       "source_handle": "bottom"},
+                {"id": f"f-a1-end",   "source": str(a[1].id), "target": "end",        "flow_type": "control", "guard": "Không có → từ chối",        "source_handle": "right"},
+                # Fork → budget check + join (two separate out-edges from bottom/right of bar)
+                {"id": f"f-a2-a3",    "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control", "source_handle": "bottom"},
+                {"id": f"f-a2-a4",    "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control", "source_handle": "right"},
+                # Budget decision: yes → bottom → join; no → right → end
+                {"id": f"f-a3-a4",    "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control", "guard": "Đủ ngân sách",              "source_handle": "bottom"},
+                {"id": f"f-a3-end",   "source": str(a[3].id), "target": "end",        "flow_type": "control", "guard": "Vượt ngân sách → từ chối",  "source_handle": "right"},
                 {"id": f"f-a4-a5",    "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
                 {"id": f"f-a5-a6",    "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
-                # L2 approval decision: ≤50M → record directly; >50M → skip to merge (L2 external)
-                {"id": f"f-a6-a7",    "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control", "guard": "≤ 50M VND"},
-                {"id": f"f-a6-a8",    "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control", "guard": "> 50M VND → duyệt cấp 2"},
+                # L2 approval decision: ≤50M → bottom → record; >50M → right → merge
+                {"id": f"f-a6-a7",    "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control", "guard": "≤ 50M VND",                 "source_handle": "bottom"},
+                {"id": f"f-a6-a8",    "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control", "guard": "> 50M VND → duyệt cấp 2",   "source_handle": "right"},
                 {"id": f"f-a7-a8",    "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
                 {"id": f"f-a8-a9",    "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
                 {"id": f"f-a9-end",   "source": str(a[9].id), "target": "end",        "flow_type": "control"},
@@ -516,8 +516,8 @@ async def seed():
                 {"id": "f-start-b0", "source": "start",    "target": str(b[0].id), "flow_type": "control"},
                 {"id": "f-b0-b1",    "source": str(b[0].id),"target": str(b[1].id),"flow_type": "control"},
                 {"id": "f-b1-b2",    "source": str(b[1].id),"target": str(b[2].id),"flow_type": "control"},
-                {"id": "f-b2-b3",    "source": str(b[2].id),"target": str(b[3].id),"flow_type": "control", "guard": "Không sai lệch"},
-                {"id": "f-b2-inc",   "source": str(b[2].id),"target": "end",       "flow_type": "control", "guard": "Có sai lệch → báo cáo sự cố"},
+                {"id": "f-b2-b3",    "source": str(b[2].id),"target": str(b[3].id),"flow_type": "control", "guard": "Không sai lệch",              "source_handle": "bottom"},
+                {"id": "f-b2-inc",   "source": str(b[2].id),"target": "end",       "flow_type": "control", "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right"},
                 {"id": "f-b3-b4",    "source": str(b[3].id),"target": str(b[4].id),"flow_type": "control"},
                 {"id": "f-b4-b5",    "source": str(b[4].id),"target": str(b[5].id),"flow_type": "control"},
                 {"id": "f-b5-b6",    "source": str(b[5].id),"target": str(b[6].id),"flow_type": "object"},
