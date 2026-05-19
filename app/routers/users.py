@@ -9,7 +9,7 @@ from app.schemas.user import UserResponse, UserUpdateRequest
 from app.schemas.response import ApiResponse
 from app.deps import current_user
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.get("/search", response_model=ApiResponse[list[UserSearchResult]])

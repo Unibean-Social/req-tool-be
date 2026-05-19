@@ -18,7 +18,7 @@ from app.schemas.response import ApiResponse
 from app.services.github_service import GithubService
 from app.services.requirements.task_service import TaskService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["tasks"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Tasks"])
 
 
 @router.post("/tasks", response_model=ApiResponse[TaskResponse], status_code=status.HTTP_201_CREATED)

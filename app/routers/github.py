@@ -31,7 +31,7 @@ from app.schemas.github import (
 from app.schemas.response import ApiResponse
 from app.services.github_service import GithubService
 
-router = APIRouter(tags=["github"])
+router = APIRouter(tags=["GitHub Integration"])
 
 _GITHUB_APP_INSTALL_URL = "https://github.com/apps/{slug}/installations/new"
 

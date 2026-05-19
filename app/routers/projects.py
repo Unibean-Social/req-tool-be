@@ -10,7 +10,7 @@ from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUp
 from app.schemas.response import ApiResponse
 from app.services.project_service import ProjectService
 
-router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["projects"])
+router = APIRouter(prefix="/orgs/{org_id}/projects", tags=["Projects"])
 
 
 @router.post("", response_model=ApiResponse[ProjectResponse], status_code=status.HTTP_201_CREATED)

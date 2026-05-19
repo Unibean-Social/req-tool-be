@@ -13,7 +13,7 @@ from app.schemas.response import ApiResponse
 from app.schemas.user import UserResponse
 from app.core.responses import ok
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 class UserUpdateAdminRequest(BaseModel):

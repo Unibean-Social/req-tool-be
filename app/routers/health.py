@@ -24,7 +24,7 @@ from app.models.requirements import (
 from app.models.user import User
 from app.schemas.response import ApiResponse
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["health"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Project Health"])
 
 _LABEL_PREFIXES = ("type:", "status:", "priority:")
 

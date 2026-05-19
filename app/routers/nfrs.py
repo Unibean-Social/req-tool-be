@@ -12,7 +12,7 @@ from app.schemas.nfr import NFRCreateRequest, NFRResponse, NFRUpdateRequest
 from app.schemas.response import ApiResponse
 from app.services.nfr_service import NFRService
 
-router = APIRouter(prefix="/projects/{project_id}/nfrs", tags=["user-requirements"])
+router = APIRouter(prefix="/projects/{project_id}/nfrs", tags=["NFRs"])
 
 
 @router.post("", response_model=ApiResponse[NFRResponse], status_code=status.HTTP_201_CREATED)

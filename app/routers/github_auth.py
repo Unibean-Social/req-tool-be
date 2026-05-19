@@ -18,7 +18,7 @@ from app.schemas.auth import RefreshRequest, TokenResponse
 from app.schemas.response import ApiResponse
 from app.services.auth_service import AuthService
 
-router = APIRouter(prefix="/auth/github", tags=["auth"])
+router = APIRouter(prefix="/auth/github", tags=["Auth"])
 
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 _LOGIN_COOKIE = "oauth_nonce"

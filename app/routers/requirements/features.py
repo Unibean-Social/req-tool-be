@@ -20,7 +20,7 @@ from app.services.github_service import GithubService
 from app.services.requirements.feature_service import FeatureService
 from app.services.requirements.story_service import StoryService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["features"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Features"])
 
 
 @router.get("/features", response_model=ApiResponse[list[FeatureResponse]])

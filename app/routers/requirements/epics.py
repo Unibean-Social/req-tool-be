@@ -20,7 +20,7 @@ from app.services.github_service import GithubService
 from app.services.requirements.epic_service import EpicService
 from app.services.requirements.feature_service import FeatureService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["epics"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Epics"])
 
 
 @router.get("/epics", response_model=ApiResponse[list[EpicResponse]])

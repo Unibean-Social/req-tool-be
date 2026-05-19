@@ -11,7 +11,7 @@ from app.schemas.estimate import EstimateListResponse
 from app.schemas.response import ApiResponse
 from app.services.estimate_service import EstimateService, VALID_VALUES
 
-router = APIRouter(prefix="/projects/{project_id}/stories/{story_id}/estimates", tags=["estimates"])
+router = APIRouter(prefix="/projects/{project_id}/stories/{story_id}/estimates", tags=["Story Estimates"])
 
 
 class EstimateIn(BaseModel):

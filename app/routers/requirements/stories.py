@@ -18,7 +18,7 @@ from app.schemas.response import ApiResponse
 from app.services.github_service import GithubService
 from app.services.requirements.story_service import StoryService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["stories"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Stories"])
 
 
 @router.get("/stories", response_model=ApiResponse[list[StoryResponse]])
