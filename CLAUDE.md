@@ -1,123 +1,208 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Commands
 
 ```bash
-# First-time setup
 task setup              # create .venv + install deps
-
-# Infrastructure (Docker required)
 task infra:up           # start PostgreSQL (5432) + pgAdmin (5050)
 task infra:down
-
-# Run
-task dev                # migrate → uvicorn with --reload at 127.0.0.1:8000
-task up                 # infra:up + dev in one command
-
-# Database
+task dev                # migrate → uvicorn --reload at 127.0.0.1:8000
+task up                 # infra:up + dev in one step
 task db:upgrade         # alembic upgrade head
-task db:revision -- 'describe change'   # autogenerate migration
-task db:downgrade
-
-# Tests
-pytest                              # full suite
-pytest tests/path/test_file.py      # single file
-pytest -k "test_name"               # single test by name
-pytest -x                           # stop on first failure
+task db:revision -- 'describe change'
+pytest                  # full suite
+pytest tests/test_file.py -k "test_name" -x
 ```
 
-`.env` must exist before running (copy `.env.example`). Activate `.venv` before running any commands directly.
+`.env` must exist (copy `.env.example`). Activate `.venv` before running commands directly.
 
-## Architecture
+---
 
-### Stack
-FastAPI + SQLAlchemy 2.0 async + asyncpg + PostgreSQL. Alembic for migrations. Pydantic v2 / pydantic-settings for config and schemas. JWT (python-jose HS256) + bcrypt for auth. Fernet (cryptography) for token-at-rest encryption.
+## Stack
 
-### Request/Response Contract
+FastAPI + SQLAlchemy 2.0 async + asyncpg + PostgreSQL. Alembic for migrations. Pydantic v2 for schemas. JWT HS256 + bcrypt for auth. Fernet for token-at-rest encryption.
 
-Every non-204 endpoint returns `ApiResponse[T]` (`app/schemas/response.py`):
-```json
-{"success": true, "data": {...}, "message": "..."}
-```
-Use `ok(data, message)` or `created(data, message)` from `app/core/responses.py` as the return value — FastAPI serializes through the `response_model`.
+---
 
-Errors use RFC 7807 Problem Detail (`app/core/errors.py`) with added `request_id` and `errors[]` fields. Three registered handlers: `HTTPException`, `RequestValidationError`, unhandled `Exception`.
+## 1. Think Before Coding
 
-### Auth
+### Example: Adding a new endpoint
 
-**JWT**: Two-token system — access (30 min) + refresh (7 days). Token payload: `{sub: user_id, exp, type: "access"|"refresh"}`. `decode_token()` returns `{}` on failure; callers check truthiness.
+**Request:** "Add an endpoint to list epics for a project"
 
-**`current_user` dep** (`app/deps.py`): composes HTTPBearer → decode → DB lookup. Inject via `Depends(current_user)`.
-
-**Password hashing**: HMAC-SHA256 with pepper (defaults to `jwt_secret_key` in dev, independent `PASSWORD_PEPPER` in prod) → base64 → bcrypt. Never pass raw password to bcrypt.
-
-**GitHub OAuth**: Stateless CSRF via HMAC-signed state + httpOnly cookie nonce. Cookie deleted after use. Tokens encrypted with Fernet before DB storage (`encrypt_token` / `decrypt_token` in `app/core/crypto.py`).
-
-### Database Session
-
-`get_db()` in `app/database.py` — yields `AsyncSession`, commits on success, rolls back on exception. Add entities with `db.add(obj)` then `db.flush()` (not `commit`) to get the generated ID while still inside the request transaction.
+**❌ What LLMs Do**
 
 ```python
-db.add(entity)
-await db.flush()          # get entity.id, stay in transaction
-return created(entity)    # dependency commits on response
+@router.get("/projects/{project_id}/epics")
+async def list_epics(project_id: UUID, service: EpicService = Depends(get_epic_service)):
+    return ok(await service.list(project_id))
 ```
 
-### Model Hierarchy
+**Problems:**
 
-```
-User → OrgMember → Organization → Project → Actor
-                                           → GithubConnection (1:1)
-```
+- No auth check — any request, authenticated or not, can read any project's epics
+- `current_user` not injected — no way to know who is calling
+- No membership guard — org members from other projects get full access
 
-All models inherit `AuditMixin` (`app/models/base.py`): UUID PK, `created_at`, `updated_at` (server-side UTC). `OrgMember` has `UniqueConstraint(org_id, user_id)`.
+**✅ What Should Happen**
 
-### Authorization Guards
+Before writing, identify: Is this project-scoped? → yes → needs `require_project_access`. Is it owner-only? → no → member access is enough.
 
-Consolidated authorization checks in `app/core/guards.py`:
 ```python
-require_org_member(org_id, user, db) -> OrgMember
-require_org_owner(org_id, user, db) -> OrgMember
-require_project_access(project_id, user, db) -> Project
-require_sprint(sprint_id, project_id, db) -> Sprint
+@router.get("/projects/{project_id}/epics", response_model=ApiResponse[list[EpicResponse]])
+async def list_epics(
+    project_id: UUID,
+    user: User = Depends(current_user),
+    service: EpicService = Depends(get_epic_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list(project_id))
 ```
-Call these at the top of each router handler to verify access before delegating to a service.
 
-### Service Layer
+---
 
-Business logic lives in `app/services/` organized by domain:
-- `OrgService`, `ProjectService`, `SprintService`, `ActorService` — core domain services
-- `AuthService`, `GithubService`, `SyncService` — external integration and auth
-- `EpicService`, `FeatureService`, `StoryService`, `TaskService` — requirement-specific services under `app/services/requirements/`
+## 2. Simplicity First
 
-Each service is instantiated via a factory function in `app/deps.py` and injected into routers:
+### Example: Implementing a service update method
+
+**Request:** "Update an epic's title and description"
+
+**❌ What LLMs Do**
+
 ```python
-def get_org_service(db: AsyncSession = Depends(get_db)) -> OrgService:
-    return OrgService(db)
+async def update(self, epic_id: UUID, body: EpicUpdate) -> Epic:
+    epic = await self._get_or_404(epic_id)
+    if body.title is not None:
+        await self._validate_title_uniqueness(body.title, epic.project_id)
+        await self._emit_change_event("title", epic.title, body.title)
+    if body.description is not None:
+        await self._archive_previous_description(epic)
+    self._apply_patch(epic, body)
+    await self.db.flush()
+    await self._notify_watchers(epic)
+    return epic
 ```
 
-Routers remain thin HTTP adapters: they validate input, call guards for authorization, invoke service methods, and return responses via `ok()` or `created()`.
+**Problems:**
 
-### Config & Secrets
+- Uniqueness check, event emit, archive, notify — none were asked for
+- Each added method needs its own tests and failure paths
+- When requirements change, every speculative feature becomes debt
 
-`app/config.py` — `Settings` (pydantic-settings). Loaded from `.env`. Production enforces: `JWT_SECRET_KEY` ≥ 32 chars, `ENCRYPTION_KEY`, `PASSWORD_PEPPER`, `GITHUB_CLIENT_ID/SECRET` must be set. Fails at startup if violated.
+**✅ What Should Happen**
 
-`AUTO_MIGRATE=false` is set by Taskfile `dev`/`start` tasks because they run `alembic upgrade head` explicitly — prevents the lifespan hook from running a second migration.
+```python
+async def update(self, epic: Epic, body: EpicUpdate) -> Epic:
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(epic, field, value)
+    await self.db.flush()
+    await self.db.refresh(epic)
+    return epic
+```
 
-### Adding a New Resource
+Add uniqueness checks, events, or notifications only when they are explicitly required.
 
-1. **Model**: Create in `app/models/` inheriting `AuditMixin` + `Base`; import in `app/models/__init__.py` (required for Alembic)
-2. **Migration**: `task db:revision -- 'add <resource> table'`
-3. **Schemas**: Create in `app/schemas/` — `CreateRequest`, `UpdateRequest`, `Response` (with `from_attributes=True`)
-4. **Service**: Create a service class in `app/services/` (or `app/services/requirements/` for requirement types) with methods for create, read, update, delete operations
-5. **Service Factory**: Add a factory function in `app/deps.py` (e.g., `def get_foo_service(db) -> FooService`)
-6. **Router**: Create thin HTTP adapter in `app/routers/` with `APIRouter(prefix=..., tags=[...])`; inject service via `Depends(get_foo_service)` and call service methods
-7. **Registration**: Register router in `app/main.py` under `api_v1`
+---
 
-### Testing
+## 3. Surgical Changes
 
-Tests use SQLite in-memory via `aiosqlite`. `conftest.py` patches `app.database.engine` and the session factory before any test runs. The `BASE = "/api/v1"` constant in `conftest.py` must prefix all test paths. Login responses are wrapped: `resp.json()["data"]["access_token"]`.
+### Example: Fixing a bug in the close endpoint
 
-`db_session` fixture overrides `get_db` per-test; each test auto-commits then rolls back at teardown.
+**Request:** "Fix the 500 error when closing an epic with an empty comment"
+
+**❌ What LLMs Do**
+
+```python
+# "Improved" the whole handler while fixing the bug
+@router.patch("/epics/{epic_id}/close", response_model=ApiResponse[EpicResponse])
+async def close_epic(
+    epic_id: UUID,
+    project_id: UUID,                          # added type hint
+    body: CloseRequest,
+    user: User = Depends(current_user),
+    service: EpicService = Depends(get_epic_service),
+):
+    """Close an epic with a reason."""         # added docstring
+    project = await require_project_access(project_id, user, service.db)
+    if not body.comment or not body.comment.strip():   # the actual fix
+        raise HTTPException(422, "Comment required")
+    epic = await service.close(epic_id, body)
+    logger.info(f"Epic {epic_id} closed")     # added logging nobody asked for
+    return ok(epic)
+```
+
+**Problems:**
+
+- Added docstring, logger, and parameter annotations beyond the fix
+- Changed the existing style of the file
+- The actual bug fix is one line; everything else is noise
+
+**✅ What Should Happen**
+
+Only touch `CloseRequest` schema — the validation belongs there, not in the router:
+
+```python
+class CloseRequest(BaseModel):
+    reason: CloseReason
+    comment: str
+
+    @field_validator("comment")
+    @classmethod
+    def comment_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("comment must not be empty")
+        return v
+```
+
+One validator, zero changes to the router.
+
+---
+
+## 4. Goal-Driven Execution
+
+### Example: A test fails after updating a service
+
+**Request:** "test_update_task_title is failing with MissingGreenlet"
+
+**❌ What LLMs Do**
+
+```python
+# Just changes the test to avoid the error
+async def test_update_task_title(client):
+    ...
+    r = await client.patch(f"{BASE}/tasks/{task['id']}", json={"title": "New"})
+    assert r.status_code == 200
+    # removed: assert r.json()["data"]["updated_at"] is not None  ← deleted the assertion
+```
+
+**Problems:**
+
+- Hides the bug instead of fixing it
+- `updated_at` is still stale on every real update — clients will cache wrong timestamps
+- The next developer will hit the same bug in production
+
+**✅ What Should Happen**
+
+Define the goal first: _the response must contain a fresh `updated_at` after update._
+
+1. Confirm the failure reproduces: run `pytest -k test_update_task_title -s`, read the traceback
+2. Trace root cause: `MissingGreenlet` on `updated_at` → `onupdate=func.now()` is server-side → expired after `flush()` → fix is `await db.refresh(task)`
+3. Fix the service, keep the assertion:
+
+```python
+async def update(self, task: Task, body: TaskUpdate) -> Task:
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(task, field, value)
+    await self.db.flush()
+    await self.db.refresh(task)   # reload server-side updated_at
+    return task
+```
+
+4. Verify: test passes, no other tests regress.
+
+---
+
+## Rules
+
+Detailed rules auto-injected from `.claude/rules/` by file glob:
+`api-response.md` · `code-struct.md` · `endpoints.md` · `testing.md` · `code-clean.md`
