@@ -454,9 +454,9 @@ async def seed():
                 {"id": f"f-a3-end",   "source": str(a[3].id), "target": "end",        "flow_type": "control", "guard": "Vượt ngân sách → từ chối"},
                 {"id": f"f-a4-a5",    "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
                 {"id": f"f-a5-a6",    "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
-                # L2 approval decision
+                # L2 approval decision: ≤50M → record directly; >50M → skip to merge (L2 external)
                 {"id": f"f-a6-a7",    "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control", "guard": "≤ 50M VND"},
-                {"id": f"f-a6-l2",    "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control", "guard": "> 50M VND → duyệt cấp 2"},
+                {"id": f"f-a6-a8",    "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control", "guard": "> 50M VND → duyệt cấp 2"},
                 {"id": f"f-a7-a8",    "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
                 {"id": f"f-a8-a9",    "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
                 {"id": f"f-a9-end",   "source": str(a[9].id), "target": "end",        "flow_type": "control"},
