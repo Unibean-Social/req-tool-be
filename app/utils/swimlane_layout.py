@@ -1,12 +1,13 @@
 """
 Swimlane layout calculator — Stage 4 + Stage 5 of the swimlane generation pipeline.
 
-Stage 4: calculate_layout  — assign x, y, width, height to each node
-Stage 5: review_positions  — detect overlaps, corridor collisions; auto-fix or raise
+Stage 4: calculate_layout  — assign x, y, width, height dynamically based on label + notation
+Stage 5: review_positions  — Bedrock AI review with rule-based fallback
 """
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -14,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 NotationType = Literal["action", "objectNode", "decision", "merge", "fork", "join"]
 
-LANE_WIDTH = 300
+# ── Constants ──────────────────────────────────────────────────────────────────
 
+# Base dimensions per notation (width, height) when no label or short label
 NODE_DIMS: dict[str, tuple[int, int]] = {
     "action":       (200, 60),
     "decision":     (160, 80),
@@ -27,6 +29,7 @@ NODE_DIMS: dict[str, tuple[int, int]] = {
     "final_node":   (30,  30),
 }
 
+# Vertical padding between node centers (added to half-heights)
 PADDING: dict[str, int] = {
     "action":       80,
     "decision":     90,
@@ -38,19 +41,32 @@ PADDING: dict[str, int] = {
     "final_node":   60,
 }
 
-DECISION_NEXT_EXTRA = 20  # extra gap when next node is decision
-MIN_CORRIDOR_OFFSET = 180  # rightmost_lane_x + this → first corridor
-CORRIDOR_STEP = 60
+DECISION_NEXT_EXTRA = 20    # extra gap before a decision node
+MIN_LANE_WIDTH = 280        # minimum lane width in px
+LANE_SIDE_PADDING = 60      # padding left+right of widest node in lane
+MAX_NODE_WIDTH = 320        # cap node width — wider than this wraps to more lines
+CHAR_WIDTH = 8.5            # estimated px per character
+LINE_HEIGHT = 22            # px per text line
+LABEL_H_PADDING = 24        # total horizontal inner padding of text area
+LABEL_V_PADDING = 20        # total vertical inner padding of text area
+MIN_CORRIDOR_OFFSET = 180   # rightmost_lane_right + this → first reject corridor x
+CORRIDOR_STEP = 70          # x spacing between consecutive reject corridors
+MIN_EDGE_CLEARANCE = 40     # minimum px clearance between an edge and unrelated nodes
 
+
+# ── Data classes ───────────────────────────────────────────────────────────────
 
 @dataclass
 class LaneSpec:
     id: str
     index: int
+    width: float = 300.0
+    x_left: float = 0.0    # left edge of lane
+    x_center: float = 0.0  # center x (set after width calculation)
 
     @property
-    def x_center(self) -> float:
-        return self.index * LANE_WIDTH + LANE_WIDTH / 2
+    def x_right(self) -> float:
+        return self.x_left + self.width
 
 
 @dataclass
@@ -66,7 +82,6 @@ class NodeLayout:
     index: int | None = None
 
     def bbox(self) -> tuple[float, float, float, float]:
-        """(x_min, y_min, x_max, y_max)"""
         hw, hh = self.width / 2, self.height / 2
         return (self.x - hw, self.y - hh, self.x + hw, self.y + hh)
 
@@ -102,78 +117,125 @@ class LayoutConflictError(Exception):
     pass
 
 
+# ── Label-aware node sizing ────────────────────────────────────────────────────
+
+def estimate_node_size(notation: str, label: str | None) -> tuple[float, float]:
+    """Return (width, height) accounting for label length and notation shape."""
+    base_w, base_h = NODE_DIMS.get(notation, NODE_DIMS["action"])
+
+    # Nodes that don't display text as a body label
+    if notation in ("fork", "join", "merge", "initial_node", "final_node") or not label:
+        return float(base_w), float(base_h)
+
+    chars = len(label)
+
+    if notation == "decision":
+        # Diamond: usable text area is ~60% of width due to shape
+        usable_w = max(base_w * 0.6, 80.0)
+        chars_per_line = max(1, int((usable_w - LABEL_H_PADDING) / CHAR_WIDTH))
+        lines = math.ceil(chars / chars_per_line)
+        # Widen diamond if label is long
+        needed_w = min(chars * CHAR_WIDTH * 0.6 + LABEL_H_PADDING + 40, MAX_NODE_WIDTH)
+        w = max(float(base_w), needed_w)
+        # Extra height per extra line (diamond needs proportionally more)
+        extra_lines = max(0, lines - 1)
+        h = max(float(base_h), base_h + extra_lines * LINE_HEIGHT * 1.3)
+        return round(w, 1), round(h, 1)
+
+    # action, objectNode: rectangular, wraps text
+    needed_w = min(chars * CHAR_WIDTH + LABEL_H_PADDING, MAX_NODE_WIDTH)
+    w = max(float(base_w), needed_w)
+
+    chars_per_line = max(1, int((w - LABEL_H_PADDING) / CHAR_WIDTH))
+    lines = math.ceil(chars / chars_per_line)
+    lines = min(lines, 5)
+
+    h = max(float(base_h), lines * LINE_HEIGHT + LABEL_V_PADDING)
+    return round(w, 1), round(h, 1)
+
+
+# ── Lane width calculation ─────────────────────────────────────────────────────
+
+def _compute_lane_geometry(
+    lanes: list[LaneSpec],
+    nodes_by_lane: dict[str, list[NodeLayout]],
+) -> None:
+    """Mutate lanes: set width and x_left/x_center based on widest node in each lane."""
+    cumulative_x = 0.0
+    for lane in lanes:
+        lane_nodes = nodes_by_lane.get(lane.id, [])
+        max_node_w = max((n.width for n in lane_nodes), default=float(NODE_DIMS["action"][0]))
+        lane.width = max(MIN_LANE_WIDTH, max_node_w + LANE_SIDE_PADDING * 2)
+        lane.x_left = cumulative_x
+        lane.x_center = cumulative_x + lane.width / 2
+        cumulative_x += lane.width
+
+
 # ── Stage 4: calculate_layout ──────────────────────────────────────────────────
 
 def calculate_layout(
     actions: list[dict],  # [{id, lane_id, notation, label?, order}]
-    lane_ids: list[str],  # ordered list of lane ids
+    lane_ids: list[str],
 ) -> SwimlaneLayout:
     lanes = [LaneSpec(id=lid, index=i) for i, lid in enumerate(lane_ids)]
     lane_map = {ln.id: ln for ln in lanes}
-    rightmost_x = lanes[-1].x_center if lanes else 150.0
+    sorted_actions = sorted(actions, key=lambda a: a.get("order", 0))
+    first_lane = lanes[0] if lanes else LaneSpec(id="lane-default", index=0)
 
+    # Pass 1: estimate node sizes
+    pre_nodes: list[NodeLayout] = []
+    for i, action in enumerate(sorted_actions):
+        notation = action.get("notation", "action")
+        w, h = estimate_node_size(notation, action.get("label"))
+        lid = action["lane_id"]
+        pre_nodes.append(NodeLayout(
+            id=str(action["id"]), lane_id=lid, notation=notation,
+            label=action.get("label"), width=w, height=h, index=i,
+        ))
+
+    # Pass 2: compute lane widths from node sizes
+    nodes_by_lane: dict[str, list[NodeLayout]] = {}
+    for n in pre_nodes:
+        nodes_by_lane.setdefault(n.lane_id, []).append(n)
+    _compute_lane_geometry(lanes, nodes_by_lane)
+
+    # Pass 3: assign x, y positions
     w_init, h_init = NODE_DIMS["initial_node"]
-    w_final, h_final = NODE_DIMS["final_node"]
-
-    START_Y = 50.0
-    first_lane = lanes[0]
-
-    # y cursor per lane
-    y_cursor: dict[str, float] = {ln.id: START_Y for ln in lanes}
-    global_y = START_Y  # main vertical progression
-
     initial = NodeLayout(
         id="start", lane_id=first_lane.id, notation="initial_node",
-        x=first_lane.x_center, y=START_Y,
-        width=w_init, height=h_init,
+        x=first_lane.x_center, y=50.0, width=float(w_init), height=float(h_init),
     )
-    global_y += h_init / 2 + PADDING["initial_node"] + 30  # gap to first action
+
+    global_y = 50.0 + h_init / 2 + PADDING["initial_node"] + 30
 
     nodes: list[NodeLayout] = []
-    sorted_actions = sorted(actions, key=lambda a: a.get("order", 0))
+    for i, (action, node) in enumerate(zip(sorted_actions, pre_nodes)):
+        notation = node.notation
+        lane = lane_map.get(node.lane_id, first_lane)
 
-    for i, action in enumerate(sorted_actions):
-        notation: str = action.get("notation", "action")
-        w, h = NODE_DIMS.get(notation, NODE_DIMS["action"])
-        lane_id = action["lane_id"]
-        lane = lane_map.get(lane_id, first_lane)
-
-        # Extra gap if current node is decision
-        extra = 0
         if i > 0:
-            prev_notation = sorted_actions[i - 1].get("notation", "action")
+            prev = pre_nodes[i - 1]
             extra = DECISION_NEXT_EXTRA if notation == "decision" else 0
-            pad = PADDING.get(prev_notation, 80)
-            prev_h = NODE_DIMS.get(prev_notation, NODE_DIMS["action"])[1]
-            gap = prev_h / 2 + pad + h / 2 + extra
+            gap = prev.height / 2 + PADDING.get(prev.notation, 80) + node.height / 2 + extra
             global_y += gap
 
-        node = NodeLayout(
-            id=str(action["id"]),
-            lane_id=lane_id,
-            notation=notation,
-            label=action.get("label"),
-            x=lane.x_center,
-            y=round(global_y, 1),
-            width=w,
-            height=h,
-            index=i,
-        )
+        node.x = lane.x_center
+        node.y = round(global_y, 1)
         nodes.append(node)
 
-    # Final node — place below last node
+    # Final node
     last = nodes[-1] if nodes else initial
-    last_pad = PADDING.get(last.notation, 80)
-    final_y = last.y + last.height / 2 + last_pad + h_final / 2
+    final_y = last.y + last.height / 2 + PADDING.get(last.notation, 80) + 15
+    w_fin, h_fin = NODE_DIMS["final_node"]
+    last_lane = lane_map.get(last.lane_id, first_lane)
     final = NodeLayout(
-        id="end", lane_id=first_lane.id, notation="final_node",
-        x=lane_map.get(last.lane_id, first_lane).x_center,
-        y=round(final_y, 1),
-        width=w_final, height=h_final,
+        id="end", lane_id=last.lane_id, notation="final_node",
+        x=last_lane.x_center, y=round(final_y, 1),
+        width=float(w_fin), height=float(h_fin),
     )
 
-    # Build flows with reject corridors
-    flows = _build_flows(actions, nodes, initial, final, rightmost_x)
+    # Build flows
+    flows = _build_flows(actions, nodes, initial, final, lanes)
 
     return SwimlaneLayout(lanes=lanes, initial_node=initial, final_node=final, nodes=nodes, flows=flows)
 
@@ -183,13 +245,12 @@ def _build_flows(
     nodes: list[NodeLayout],
     initial: NodeLayout,
     final: NodeLayout,
-    rightmost_x: float,
+    lanes: list[LaneSpec],
 ) -> list[FlowLayout]:
     node_map: dict[str, NodeLayout] = {n.id: n for n in [initial, final] + nodes}
+    rightmost_right = lanes[-1].x_right if lanes else 450.0
     flows: list[FlowLayout] = []
     reject_index = 0
-
-    flows.append(FlowLayout(id="f-start-0", source="start", target=nodes[0].id if nodes else "end"))
 
     raw_flows: list[dict] = []
     for action in sorted(actions, key=lambda a: a.get("order", 0)):
@@ -197,43 +258,42 @@ def _build_flows(
             raw_flows.append(edge)
 
     if not raw_flows:
-        # Auto-generate linear flow
-        all_nodes = nodes + [final]
-        prev = initial
-        for n in all_nodes:
-            flows.append(FlowLayout(id=f"f-{prev.id}-{n.id}", source=prev.id, target=n.id))
-            prev = n
+        # Linear auto-flow
+        seq: list[NodeLayout] = [initial] + nodes + [final]
+        for j in range(len(seq) - 1):
+            flows.append(FlowLayout(
+                id=f"f-{seq[j].id}-{seq[j+1].id}",
+                source=seq[j].id, target=seq[j+1].id,
+            ))
         return flows
 
     for edge in raw_flows:
-        src_node = node_map.get(edge["source"])
-        tgt_node = node_map.get(edge["target"])
+        src = node_map.get(edge["source"])
+        tgt = node_map.get(edge["target"])
         is_reject = edge.get("source_handle") == "right"
-
         waypoints: list[WaypointSpec] = []
         target_handle = edge.get("target_handle")
 
-        if is_reject and tgt_node:
-            corridor_x = rightmost_x + MIN_CORRIDOR_OFFSET + reject_index * CORRIDOR_STEP
+        if is_reject and src and tgt:
+            corridor_x = rightmost_right + MIN_CORRIDOR_OFFSET + reject_index * CORRIDOR_STEP
             reject_index += 1
             waypoints = [
-                WaypointSpec(x=corridor_x, y=src_node.y if src_node else 0),
-                WaypointSpec(x=corridor_x, y=tgt_node.y),
+                WaypointSpec(x=corridor_x, y=src.y),
+                WaypointSpec(x=corridor_x, y=tgt.y),
             ]
             target_handle = "right"
-        elif src_node and tgt_node and tgt_node.x < src_node.x:
+        elif src and tgt and tgt.x < src.x:
             # Cross-lane going left
-            mid_y = (src_node.y + tgt_node.y) / 2
+            mid_y = (src.y + tgt.y) / 2
             waypoints = [
-                WaypointSpec(x=tgt_node.x + 130, y=src_node.y),
-                WaypointSpec(x=tgt_node.x, y=mid_y),
+                WaypointSpec(x=tgt.x + 130, y=src.y),
+                WaypointSpec(x=tgt.x, y=mid_y),
             ]
             target_handle = "top"
 
         flows.append(FlowLayout(
             id=edge["id"],
-            source=edge["source"],
-            target=edge["target"],
+            source=edge["source"], target=edge["target"],
             source_handle=edge.get("source_handle"),
             target_handle=target_handle,
             guard=edge.get("guard"),
@@ -247,25 +307,54 @@ def _build_flows(
 # ── Stage 5: review_positions ──────────────────────────────────────────────────
 
 _REVIEW_PROMPT = """\
-You are a UML swimlane diagram layout reviewer.
-Review the node positions below and return adjusted positions for any node that needs repositioning.
+You are a UML swimlane diagram layout expert. Review the node positions and edge routing below \
+for visual quality and correctness. Return ONLY compact JSON — no explanation.
 
-Lane width: {lane_width}px. Lane x-centers: {lane_x_map}
+## Lane geometry
+{lane_info}
 
-Nodes (JSON):
+## Nodes
 {nodes_json}
 
-Rules to enforce:
-- Minimum gap between consecutive nodes in the same lane: ceil(a.height/2) + 80 + ceil(b.height/2)
-- Add extra 20px before any decision node
-- x must remain at the node's lane center — do not change x
-- No two nodes in the same lane may overlap (|y_a - y_b| < min(h_a, h_b))
-- Reject/alternative corridor waypoints must not intersect any node bounding box (±20px margin)
+## Flows (edges)
+{flows_json}
 
-Return ONLY a compact JSON array of adjustments for nodes that need repositioning:
-[{{"id": "...", "x": 0.0, "y": 0.0}}, ...]
-If no adjustments are needed, return exactly: []
-Do not include any explanation or extra text.\
+## Review checklist
+
+1. **Label overflow** — Does node width fit the label?
+   - Estimate: char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px, max_lines=5
+   - Decision diamond: usable width ≈ 60% of node width
+   - If label overflows, increase width (cap at {max_node_width}px) and recalculate height
+
+2. **Lane boundary** — Node must stay inside lane with 20px margin:
+   - x - width/2 >= lane_x_left + 20
+   - x + width/2 <= lane_x_right - 20
+   - If violated, adjust x toward lane center or widen the lane
+
+3. **Vertical spacing** — Minimum gap between consecutive nodes in same lane:
+   - gap = prev.height/2 + 80 + next.height/2 (add 20px if next is decision)
+   - If gap too small, push conflicting node down (cascade all nodes below it)
+
+4. **Edge / corridor overlap** — No edge waypoint should pass within {clearance}px of a node it doesn't connect:
+   - Reject corridors (right-exit edges): ensure corridor_x > lane_x_right + 20 of ALL lanes it passes through
+   - If two corridors share the same x, offset second by +{corridor_step}px
+
+5. **Aspect ratio** — For action/objectNode: height should allow comfortable reading (min 1 full line visible)
+   - If height < line_height + v_padding, increase height
+
+## Response format
+
+Return exactly this JSON structure (omit sections with no changes):
+{{
+  "nodes": [
+    {{"id": "...", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}}
+  ],
+  "flows": [
+    {{"id": "...", "waypoints": [{{"x": 0.0, "y": 0.0}}]}}
+  ]
+}}
+
+If nothing needs changing: {{"nodes": [], "flows": []}}\
 """
 
 
@@ -313,96 +402,154 @@ async def _bedrock_review(
     import json
 
     all_nodes = [layout.initial_node] + layout.nodes + [layout.final_node]
+    node_map = {n.id: n for n in all_nodes}
+
+    lane_info = [
+        {
+            "id": ln.id,
+            "index": ln.index,
+            "x_left": ln.x_left,
+            "x_center": ln.x_center,
+            "x_right": ln.x_right,
+            "width": ln.width,
+        }
+        for ln in layout.lanes
+    ]
     nodes_payload = [
-        {"id": n.id, "lane_id": n.lane_id, "notation": n.notation,
-         "x": n.x, "y": n.y, "width": n.width, "height": n.height}
+        {
+            "id": n.id,
+            "lane_id": n.lane_id,
+            "notation": n.notation,
+            "label": n.label or "",
+            "label_chars": len(n.label or ""),
+            "x": n.x,
+            "y": n.y,
+            "width": n.width,
+            "height": n.height,
+        }
         for n in all_nodes
     ]
-    lane_x_map = {ln.id: ln.x_center for ln in layout.lanes}
+    flows_payload = [
+        {
+            "id": f.id,
+            "source": f.source,
+            "target": f.target,
+            "source_handle": f.source_handle,
+            "guard": f.guard,
+            "waypoints": [{"x": wp.x, "y": wp.y} for wp in f.waypoints],
+        }
+        for f in layout.flows
+        if f.waypoints or f.source_handle == "right"
+    ]
+
     prompt = _REVIEW_PROMPT.format(
-        lane_width=LANE_WIDTH,
-        lane_x_map=json.dumps(lane_x_map),
+        lane_info=json.dumps(lane_info, indent=2),
         nodes_json=json.dumps(nodes_payload, indent=2),
+        flows_json=json.dumps(flows_payload, indent=2),
+        max_node_width=MAX_NODE_WIDTH,
+        clearance=MIN_EDGE_CLEARANCE,
+        corridor_step=CORRIDOR_STEP,
     )
 
     raw = await asyncio.to_thread(
         _invoke_bedrock_review, prompt, access_key, secret_key, region, model_id
     )
 
-    adjustments: list[dict] = json.loads(raw) if raw.strip() not in ("[]", "") else []
-    if not adjustments:
-        return layout
+    result: dict = json.loads(raw) if raw.strip() not in ("{}", "") else {}
+    node_adjustments: list[dict] = result.get("nodes", [])
+    flow_adjustments: list[dict] = result.get("flows", [])
 
-    node_map = {n.id: n for n in all_nodes}
-    for adj in adjustments:
+    for adj in node_adjustments:
         node = node_map.get(adj.get("id", ""))
         if node:
             node.y = float(adj.get("y", node.y))
-            # x is ignored — must stay at lane center
+            node.width = float(adj.get("width", node.width))
+            node.height = float(adj.get("height", node.height))
+            # x: only accept if it stays within the node's lane
+            new_x = float(adj.get("x", node.x))
+            lane = next((ln for ln in layout.lanes if ln.id == node.lane_id), None)
+            if lane and (lane.x_left + node.width / 2 + 20 <= new_x <= lane.x_right - node.width / 2 - 20):
+                node.x = new_x
+            # else: ignore — x stays at lane center
 
-    # Run rule-based pass after LLM to catch anything the LLM missed
+    flow_map = {f.id: f for f in layout.flows}
+    for adj in flow_adjustments:
+        flow = flow_map.get(adj.get("id", ""))
+        if flow and "waypoints" in adj:
+            flow.waypoints = [WaypointSpec(x=wp["x"], y=wp["y"]) for wp in adj["waypoints"]]
+
+    # Safety net: rule-based pass after LLM
     return _rule_based_review(layout, max_iterations=1)
 
 
 def _invoke_bedrock_review(
-    prompt: str,
-    access_key: str,
-    secret_key: str,
-    region: str,
-    model_id: str,
+    prompt: str, access_key: str, secret_key: str, region: str, model_id: str,
 ) -> str:
     import boto3
-
     client = boto3.client(
-        "bedrock-runtime",
-        region_name=region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
+        "bedrock-runtime", region_name=region,
+        aws_access_key_id=access_key, aws_secret_access_key=secret_key,
     )
     response = client.converse(
         modelId=model_id,
         messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": 1024, "temperature": 0.0},
+        inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
     )
     return response["output"]["message"]["content"][0]["text"].strip()
 
 
+# ── Rule-based conflict detection + auto-fix ───────────────────────────────────
+
 def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
     conflicts: list[dict] = []
     all_nodes = layout.nodes + [layout.initial_node, layout.final_node]
+    lane_map = {ln.id: ln for ln in layout.lanes}
 
+    # 1. Vertical overlap in same lane
     by_lane: dict[str, list[NodeLayout]] = {}
     for n in all_nodes:
         by_lane.setdefault(n.lane_id, []).append(n)
 
     for lane_id, lane_nodes in by_lane.items():
-        sorted_nodes = sorted(lane_nodes, key=lambda n: n.y)
-        for i in range(len(sorted_nodes) - 1):
-            a, b = sorted_nodes[i], sorted_nodes[i + 1]
+        for a, b in zip(
+            sorted(lane_nodes, key=lambda n: n.y),
+            sorted(lane_nodes, key=lambda n: n.y)[1:],
+        ):
             min_gap = a.height / 2 + 80 + b.height / 2
-            actual_gap = b.y - a.y
-            if actual_gap < min_gap:
+            if b.y - a.y < min_gap:
                 conflicts.append({
                     "type": "overlap",
-                    "desc": f"nodes {a.id} and {b.id} in lane {lane_id}: gap={actual_gap:.0f} < min={min_gap:.0f}",
                     "node_id": b.id,
-                    "delta": min_gap - actual_gap,
+                    "delta": min_gap - (b.y - a.y),
+                    "desc": f"{a.id}↔{b.id} gap {b.y-a.y:.0f}px < {min_gap:.0f}px",
                 })
 
-    # Corridor collision: check reject waypoints don't pass through node bboxes
-    node_map = {n.id: n for n in all_nodes}
+    # 2. Lane boundary violation
+    for n in all_nodes:
+        lane = lane_map.get(n.lane_id)
+        if lane:
+            if n.x - n.width / 2 < lane.x_left + 20 or n.x + n.width / 2 > lane.x_right - 20:
+                conflicts.append({
+                    "type": "out_of_lane",
+                    "node_id": n.id,
+                    "delta": 0,
+                    "desc": f"node {n.id} (w={n.width}) exceeds lane [{lane.x_left},{lane.x_right}]",
+                })
+
+    # 3. Corridor waypoint collision
     for flow in layout.flows:
-        if not flow.waypoints:
-            continue
         for wp in flow.waypoints:
             for n in all_nodes:
-                x_min, y_min, x_max, y_max = n.bbox()
-                if x_min - 20 <= wp.x <= x_max + 20 and y_min - 20 <= wp.y <= y_max + 20:
+                if n.id in (flow.source, flow.target):
+                    continue
+                x0, y0, x1, y1 = n.bbox()
+                if x0 - MIN_EDGE_CLEARANCE <= wp.x <= x1 + MIN_EDGE_CLEARANCE and \
+                   y0 - MIN_EDGE_CLEARANCE <= wp.y <= y1 + MIN_EDGE_CLEARANCE:
                     conflicts.append({
                         "type": "corridor_collision",
-                        "desc": f"waypoint ({wp.x},{wp.y}) of flow {flow.id} passes through node {n.id}",
                         "flow_id": flow.id,
                         "delta": 0,
+                        "desc": f"waypoint ({wp.x},{wp.y}) of {flow.id} too close to {n.id}",
                     })
 
     return conflicts
@@ -411,31 +558,53 @@ def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
 def _auto_fix(layout: SwimlaneLayout, conflicts: list[dict]) -> SwimlaneLayout:
     node_map = {n.id: n for n in layout.nodes + [layout.initial_node, layout.final_node]}
 
-    for conflict in conflicts:
-        if conflict["type"] == "overlap":
-            node = node_map.get(conflict["node_id"])
+    for c in conflicts:
+        if c["type"] == "overlap":
+            node = node_map.get(c["node_id"])
             if node:
-                node.y += conflict["delta"]
-                # Cascade: push all nodes below this one in the same lane
+                node.y += c["delta"]
                 for other in layout.nodes:
                     if other.lane_id == node.lane_id and other.y > node.y and other.id != node.id:
-                        other.y += conflict["delta"]
+                        other.y += c["delta"]
                 layout.final_node.y = max(
                     layout.final_node.y,
                     max((n.y for n in layout.nodes), default=0) + 120,
                 )
 
+        elif c["type"] == "out_of_lane":
+            node = node_map.get(c["node_id"])
+            lane = next((ln for ln in layout.lanes if ln.id == (node.lane_id if node else "")), None)
+            if node and lane:
+                # Widen lane to fit node
+                needed = node.width + LANE_SIDE_PADDING * 2
+                if needed > lane.width:
+                    delta = needed - lane.width
+                    lane.width += delta
+                    lane.x_center = lane.x_left + lane.width / 2
+                    # Shift all lanes to the right of this one
+                    for ln in layout.lanes:
+                        if ln.index > lane.index:
+                            ln.x_left += delta
+                            ln.x_center = ln.x_left + ln.width / 2
+                    # Re-center all nodes in affected lanes
+                    for n in layout.nodes + [layout.initial_node, layout.final_node]:
+                        affected_lane = next((ln for ln in layout.lanes if ln.id == n.lane_id), None)
+                        if affected_lane:
+                            n.x = affected_lane.x_center
+
     return layout
 
 
-# ── Serialization helper ───────────────────────────────────────────────────────
+# ── Serialization ──────────────────────────────────────────────────────────────
 
 def layout_to_swimlane_dict(layout: SwimlaneLayout, flow_id: str, title: str) -> dict:
-    """Convert SwimlaneLayout to the JSONB dict stored in ProjectFlow.swimlane."""
     return {
         "id": flow_id,
         "title": title,
-        "lanes": [{"id": ln.id, "title": ln.id} for ln in layout.lanes],
+        "lanes": [
+            {"id": ln.id, "title": ln.id, "width": ln.width, "x_left": ln.x_left}
+            for ln in layout.lanes
+        ],
         "initial_node": {
             "id": layout.initial_node.id,
             "lane_id": layout.initial_node.lane_id,

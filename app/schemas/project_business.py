@@ -201,6 +201,8 @@ class ProjectFlowActionResponse(BaseModel):
 class SwimlaneLane(BaseModel):
     id: str
     title: str
+    width: float | None = None    # px width of lane (dynamic, computed by layout engine)
+    x_left: float | None = None   # absolute x of left edge
 
 
 class SwimlaneNode(BaseModel):

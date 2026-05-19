@@ -39,6 +39,8 @@ from app.models.requirements import (
     Epic, Feature, Story, Task, AcceptanceCriteria,
     Priority, ItemStatus,
 )
+from app.utils.swimlane_layout import calculate_layout, layout_to_swimlane_dict, review_positions
+from app.config import settings
 
 
 ORG_SLUG = "fpt-software"
@@ -406,78 +408,86 @@ async def seed():
         await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f1[9].id, rule_id=rule_erp_sync.id))
         await session.flush()
 
-        # ── Flow 1 Swimlane (manual — full UML notation) ──────────────────────
+        # ── Flow 1 Swimlane via pipeline ──────────────────────────────────────
         a = actions_f1
-        flow1.swimlane = {
-            "id": str(flow1.id),
-            "title": "Quy trình đặt hàng và duyệt",
-            "lanes": [
-                {"id": f"lane-{sh_po.id}", "title": "Requester (Phòng ban)"},
-                {"id": f"lane-{sh_acc.id}", "title": "Kế toán / Hệ thống"},
-                {"id": f"lane-{sh_pm.id}", "title": "Approver (Quản lý)"},
-            ],
-            # Lane x centers (lane width=300): Requester=150, Kế toán=450, Approver=750
-            "initial_node": {"id": "start", "lane_id": f"lane-{sh_po.id}", "x": 150, "y": 50},
-            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_acc.id}", "x": 450, "y": 1460},
-            "actions": [
-                # Spacing rule: action→next +140, decision→next +150, fork/join→next +100, merge→next +120, objectNode→next +140
-                # order=1: action y=150
-                {"id": str(a[0].id), "lane_id": f"lane-{sh_po.id}",   "notation": "action",    "index": 0, "x": 150, "y": 150,  "label": a[0].description,                                 "width": 200, "height": 60},
-                # order=2: decision y=290 (+140)
-                {"id": str(a[1].id), "lane_id": f"lane-{sh_po.id}",   "notation": "decision",  "index": 1, "x": 150, "y": 290,  "label": "Nhà cung cấp có trong danh sách phê duyệt?",      "width": 160, "height": 80},
-                # order=3: fork y=440 (+150)
-                {"id": str(a[2].id), "lane_id": f"lane-{sh_po.id}",   "notation": "fork",      "index": 2, "x": 150, "y": 440,  "label": "Fork: Gửi đơn & Gửi notification song song",      "width": 160, "height": 20},
-                # order=4: decision y=540 (+100)
-                {"id": str(a[3].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "decision",  "index": 3, "x": 450, "y": 540,  "label": "Ngân sách còn đủ?",                               "width": 160, "height": 80},
-                # order=5: join y=690 (+150)
-                {"id": str(a[4].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "join",      "index": 4, "x": 750, "y": 690,  "label": "Join: Đồng bộ kết quả kiểm tra ngân sách",        "width": 160, "height": 20},
-                # order=6: action y=790 (+100)
-                {"id": str(a[5].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 5, "x": 750, "y": 790,  "label": a[5].description,                                 "width": 200, "height": 60},
-                # order=7: decision y=930 (+140)
-                {"id": str(a[6].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "decision",  "index": 6, "x": 750, "y": 930,  "label": "Giá trị > 50 triệu VND?",                        "width": 160, "height": 80},
-                # order=8: action y=1080 (+150)
-                {"id": str(a[7].id), "lane_id": f"lane-{sh_pm.id}",   "notation": "action",    "index": 7, "x": 750, "y": 1080, "label": a[7].description,                                 "width": 200, "height": 60},
-                # order=9: merge y=1220 (+140)
-                {"id": str(a[8].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "merge",     "index": 8, "x": 450, "y": 1220, "label": "Merge: Hợp nhất luồng duyệt",                    "width": 120, "height": 30},
-                # order=10: objectNode y=1320 (+100)
-                {"id": str(a[9].id), "lane_id": f"lane-{sh_acc.id}",  "notation": "objectNode","index": 9, "x": 450, "y": 1320, "label": "SAP B1 Purchase Order [đã tạo]",                 "width": 180, "height": 70},
-            ],
-            "flows": [
-                {"id": "f-start-a0", "source": "start",       "target": str(a[0].id), "flow_type": "control"},
-                {"id": "f-a0-a1",    "source": str(a[0].id),  "target": str(a[1].id), "flow_type": "control"},
-                # Decision a[1] (x=150): yes → bottom; no → right → corridor x=930 → end
-                {"id": "f-a1-a2",  "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control",
-                 "guard": "Có trong danh sách", "source_handle": "bottom"},
-                {"id": "f-a1-end", "source": str(a[1].id), "target": "end", "flow_type": "control",
-                 "guard": "Không có → từ chối", "source_handle": "right", "target_handle": "right",
-                 "waypoints": [{"x": 930, "y": 290}, {"x": 930, "y": 1460}]},
-                # Fork a[2] (x=150): bottom → budget decision (x=450); right → join (x=750)
-                {"id": "f-a2-a3",  "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control",
-                 "source_handle": "bottom", "target_handle": "top",
-                 "waypoints": [{"x": 150, "y": 490}, {"x": 450, "y": 490}]},
-                {"id": "f-a2-a4",  "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control",
-                 "source_handle": "right", "target_handle": "top",
-                 "waypoints": [{"x": 500, "y": 440}, {"x": 750, "y": 440}]},
-                # Decision a[3] (x=450): yes → bottom → join; no → right → corridor x=990 → end
-                {"id": "f-a3-a4",  "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control",
-                 "guard": "Đủ ngân sách", "source_handle": "bottom"},
-                {"id": "f-a3-end", "source": str(a[3].id), "target": "end", "flow_type": "control",
-                 "guard": "Vượt ngân sách → từ chối", "source_handle": "right", "target_handle": "right",
-                 "waypoints": [{"x": 990, "y": 540}, {"x": 990, "y": 1460}]},
-                {"id": "f-a4-a5",  "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
-                {"id": "f-a5-a6",  "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
-                # Decision a[6] (x=750): ≤50M → bottom → a[7]; >50M → left → a[8] (cross-lane x=450)
-                {"id": "f-a6-a7",  "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control",
-                 "guard": "≤ 50M VND", "source_handle": "bottom"},
-                {"id": "f-a6-a8",  "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control",
-                 "guard": "> 50M VND → duyệt cấp 2", "source_handle": "left", "target_handle": "top",
-                 "waypoints": [{"x": 580, "y": 930}, {"x": 450, "y": 1100}]},
-                {"id": "f-a7-a8",  "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
-                {"id": "f-a8-a9",  "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
-                {"id": "f-a9-end", "source": str(a[9].id), "target": "end",        "flow_type": "control"},
-            ],
-            "layout": None,
+        f1_lane_titles = {
+            f"lane-{sh_po.id}": "Requester (Phòng ban)",
+            f"lane-{sh_acc.id}": "Kế toán / Hệ thống",
+            f"lane-{sh_pm.id}":  "Approver (Quản lý)",
         }
+        f1_input = [
+            {"id": str(a[0].id), "lane_id": f"lane-{sh_po.id}",  "notation": "action",     "order": 1, "label": a[0].description},
+            {"id": str(a[1].id), "lane_id": f"lane-{sh_po.id}",  "notation": "decision",   "order": 2, "label": "Nhà cung cấp có trong danh sách phê duyệt?"},
+            {"id": str(a[2].id), "lane_id": f"lane-{sh_po.id}",  "notation": "fork",       "order": 3, "label": "Fork: Gửi đơn & Gửi notification song song"},
+            {"id": str(a[3].id), "lane_id": f"lane-{sh_acc.id}", "notation": "decision",   "order": 4, "label": "Ngân sách còn đủ?"},
+            {"id": str(a[4].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "join",       "order": 5, "label": "Join: Đồng bộ kết quả kiểm tra ngân sách"},
+            {"id": str(a[5].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "action",     "order": 6, "label": a[5].description},
+            {"id": str(a[6].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "decision",   "order": 7, "label": "Giá trị > 50 triệu VND?"},
+            {"id": str(a[7].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "action",     "order": 8, "label": a[7].description},
+            {"id": str(a[8].id), "lane_id": f"lane-{sh_acc.id}", "notation": "merge",      "order": 9, "label": "Merge: Hợp nhất luồng duyệt"},
+            {"id": str(a[9].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode", "order": 10, "label": "SAP B1 Purchase Order [đã tạo]"},
+        ]
+        layout1 = calculate_layout(f1_input, list(f1_lane_titles.keys()))
+        layout1 = await review_positions(
+            layout1,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+            region=settings.aws_region,
+            model_id=settings.bedrock_notation_model,
+        )
+        flow1.swimlane = layout_to_swimlane_dict(layout1, str(flow1.id), flow1.name)
+        for lane in flow1.swimlane["lanes"]:
+            lane["title"] = f1_lane_titles.get(lane["id"], lane["id"])
+
+        # Inject topology: guards + source_handles + computed waypoints
+        npos1 = {n["id"]: n for n in flow1.swimlane["actions"]}
+        npos1["start"] = flow1.swimlane["initial_node"]
+        npos1["end"]   = flow1.swimlane["activity_final_node"]
+        r1_right = max(ln["x_left"] + ln["width"] for ln in flow1.swimlane["lanes"])
+        def c1(i): return r1_right + 180 + i * 70  # corridor x for flow1 reject i
+
+        # fork routing helpers
+        a2 = npos1[str(a[2].id)]  # fork node
+        a3 = npos1[str(a[3].id)]  # budget decision
+        a4 = npos1[str(a[4].id)]  # join
+        a8 = npos1[str(a[8].id)]  # merge
+        a6 = npos1[str(a[6].id)]  # L2 decision
+        end1 = npos1["end"]
+
+        flow1.swimlane["flows"] = [
+            {"id": "f-start-a0", "source": "start",       "target": str(a[0].id), "flow_type": "control"},
+            {"id": "f-a0-a1",    "source": str(a[0].id),  "target": str(a[1].id), "flow_type": "control"},
+            # Decision a[1]: yes=bottom, no=right → corridor 0
+            {"id": "f-a1-a2",  "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control",
+             "guard": "Có trong danh sách", "source_handle": "bottom"},
+            {"id": "f-a1-end", "source": str(a[1].id), "target": "end", "flow_type": "control",
+             "guard": "Không có → từ chối", "source_handle": "right", "target_handle": "right",
+             "waypoints": [{"x": c1(0), "y": npos1[str(a[1].id)]["y"]}, {"x": c1(0), "y": end1["y"]}]},
+            # Fork a[2]: bottom → acc lane (budget check), right → pm lane (join)
+            {"id": "f-a2-a3",  "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control",
+             "source_handle": "bottom", "target_handle": "top",
+             "waypoints": [{"x": a2["x"], "y": a2["y"] + 30}, {"x": a3["x"], "y": a2["y"] + 30}]},
+            {"id": "f-a2-a4",  "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control",
+             "source_handle": "right", "target_handle": "top",
+             "waypoints": [{"x": a2["x"] + 100, "y": a2["y"]}, {"x": a4["x"], "y": a2["y"]}]},
+            # Decision a[3]: yes=bottom → join, no=right → corridor 1
+            {"id": "f-a3-a4",  "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control",
+             "guard": "Đủ ngân sách", "source_handle": "bottom"},
+            {"id": "f-a3-end", "source": str(a[3].id), "target": "end", "flow_type": "control",
+             "guard": "Vượt ngân sách → từ chối", "source_handle": "right", "target_handle": "right",
+             "waypoints": [{"x": c1(1), "y": npos1[str(a[3].id)]["y"]}, {"x": c1(1), "y": end1["y"]}]},
+            {"id": "f-a4-a5",  "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
+            {"id": "f-a5-a6",  "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
+            # Decision a[6]: ≤50M=bottom → record, >50M=left → merge (cross-lane)
+            {"id": "f-a6-a7",  "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control",
+             "guard": "≤ 50M VND", "source_handle": "bottom"},
+            {"id": "f-a6-a8",  "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control",
+             "guard": "> 50M VND → duyệt cấp 2", "source_handle": "left", "target_handle": "top",
+             "waypoints": [{"x": a6["x"] - 100, "y": a6["y"]}, {"x": a8["x"], "y": (a6["y"] + a8["y"]) / 2}]},
+            {"id": "f-a7-a8",  "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
+            {"id": "f-a8-a9",  "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
+            {"id": "f-a9-end", "source": str(a[9].id), "target": "end",        "flow_type": "control"},
+        ]
 
         # ── Flow 2 Actions — Warehouse + Accountant lanes ─────────────────────
         actions_f2 = [
@@ -506,45 +516,59 @@ async def seed():
         await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f2[5].id, rule_id=rule_erp_sync.id))
         await session.flush()
 
+        # ── Flow 2 Swimlane via pipeline ──────────────────────────────────────
         b = actions_f2
-        flow2.swimlane = {
-            "id": str(flow2.id),
-            "title": "Quy trình xử lý kho và hoàn tất",
-            "lanes": [
-                {"id": f"lane-{sh_wh.id}", "title": "Warehouse Staff (Kho)"},
-                {"id": f"lane-{sh_acc.id}", "title": "Accountant (Kế toán)"},
-            ],
-            # Lane x centers (lane width=300): Kho=150, Kế toán=450
-            "initial_node": {"id": "start", "lane_id": f"lane-{sh_wh.id}", "x": 150, "y": 50},
-            "activity_final_node": {"id": "end", "lane_id": f"lane-{sh_wh.id}", "x": 150, "y": 1340},
-            "actions": [
-                {"id": str(b[0].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 0, "x": 150, "y": 150,  "label": b[0].description,               "width": 200, "height": 60},
-                {"id": str(b[1].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 1, "x": 150, "y": 290,  "label": b[1].description,               "width": 200, "height": 60},
-                {"id": str(b[2].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "decision",  "index": 2, "x": 150, "y": 430,  "label": "Hàng có sai lệch (thiếu/hỏng)?","width": 160, "height": 80},
-                {"id": str(b[3].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 3, "x": 150, "y": 600,  "label": b[3].description,               "width": 200, "height": 60},
-                {"id": str(b[4].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 4, "x": 450, "y": 750,  "label": b[4].description,               "width": 200, "height": 60},
-                {"id": str(b[5].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",    "index": 5, "x": 450, "y": 890,  "label": b[5].description,               "width": 200, "height": 60},
-                {"id": str(b[6].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode","index": 6, "x": 450, "y": 1040, "label": "Bản ghi kế toán [hoàn tất]",    "width": 180, "height": 70},
-                {"id": str(b[7].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",    "index": 7, "x": 150, "y": 1190, "label": b[7].description,               "width": 200, "height": 60},
-            ],
-            "flows": [
-                {"id": "f-start-b0", "source": "start",    "target": str(b[0].id), "flow_type": "control"},
-                {"id": "f-b0-b1",    "source": str(b[0].id),"target": str(b[1].id),"flow_type": "control"},
-                {"id": "f-b1-b2",    "source": str(b[1].id),"target": str(b[2].id),"flow_type": "control"},
-                {"id": "f-b2-b3",  "source": str(b[2].id), "target": str(b[3].id), "flow_type": "control",
-                 "guard": "Không sai lệch", "source_handle": "bottom"},
-                # Decision b[2] (x=150): reject → right → corridor x=650 (right of Kế toán) → end (x=150)
-                {"id": "f-b2-inc", "source": str(b[2].id), "target": "end", "flow_type": "control",
-                 "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right", "target_handle": "right",
-                 "waypoints": [{"x": 650, "y": 430}, {"x": 650, "y": 1340}]},
-                {"id": "f-b3-b4",    "source": str(b[3].id),"target": str(b[4].id),"flow_type": "control"},
-                {"id": "f-b4-b5",    "source": str(b[4].id),"target": str(b[5].id),"flow_type": "control"},
-                {"id": "f-b5-b6",    "source": str(b[5].id),"target": str(b[6].id),"flow_type": "object"},
-                {"id": "f-b6-b7",    "source": str(b[6].id),"target": str(b[7].id),"flow_type": "control"},
-                {"id": "f-b7-end",   "source": str(b[7].id),"target": "end",       "flow_type": "control"},
-            ],
-            "layout": None,
+        f2_lane_titles = {
+            f"lane-{sh_wh.id}":  "Warehouse Staff (Kho)",
+            f"lane-{sh_acc.id}": "Accountant (Kế toán)",
         }
+        f2_input = [
+            {"id": str(b[0].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 1, "label": b[0].description},
+            {"id": str(b[1].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 2, "label": b[1].description},
+            {"id": str(b[2].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "decision",   "order": 3, "label": "Hàng có sai lệch (thiếu/hỏng)?"},
+            {"id": str(b[3].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 4, "label": b[3].description},
+            {"id": str(b[4].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",     "order": 5, "label": b[4].description},
+            {"id": str(b[5].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",     "order": 6, "label": b[5].description},
+            {"id": str(b[6].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode", "order": 7, "label": "Bản ghi kế toán [hoàn tất]"},
+            {"id": str(b[7].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 8, "label": b[7].description},
+        ]
+        layout2 = calculate_layout(f2_input, list(f2_lane_titles.keys()))
+        layout2 = await review_positions(
+            layout2,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+            region=settings.aws_region,
+            model_id=settings.bedrock_notation_model,
+        )
+        flow2.swimlane = layout_to_swimlane_dict(layout2, str(flow2.id), flow2.name)
+        for lane in flow2.swimlane["lanes"]:
+            lane["title"] = f2_lane_titles.get(lane["id"], lane["id"])
+
+        npos2 = {n["id"]: n for n in flow2.swimlane["actions"]}
+        npos2["start"] = flow2.swimlane["initial_node"]
+        npos2["end"]   = flow2.swimlane["activity_final_node"]
+        r2_right = max(ln["x_left"] + ln["width"] for ln in flow2.swimlane["lanes"])
+        def c2(i): return r2_right + 180 + i * 70
+
+        b2 = npos2[str(b[2].id)]  # decision node
+        end2 = npos2["end"]
+
+        flow2.swimlane["flows"] = [
+            {"id": "f-start-b0", "source": "start",       "target": str(b[0].id), "flow_type": "control"},
+            {"id": "f-b0-b1",    "source": str(b[0].id),  "target": str(b[1].id), "flow_type": "control"},
+            {"id": "f-b1-b2",    "source": str(b[1].id),  "target": str(b[2].id), "flow_type": "control"},
+            # Decision b[2]: no sai lệch=bottom, sai lệch=right → corridor 0
+            {"id": "f-b2-b3",  "source": str(b[2].id), "target": str(b[3].id), "flow_type": "control",
+             "guard": "Không sai lệch", "source_handle": "bottom"},
+            {"id": "f-b2-inc", "source": str(b[2].id), "target": "end", "flow_type": "control",
+             "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right", "target_handle": "right",
+             "waypoints": [{"x": c2(0), "y": b2["y"]}, {"x": c2(0), "y": end2["y"]}]},
+            {"id": "f-b3-b4",  "source": str(b[3].id),  "target": str(b[4].id), "flow_type": "control"},
+            {"id": "f-b4-b5",  "source": str(b[4].id),  "target": str(b[5].id), "flow_type": "control"},
+            {"id": "f-b5-b6",  "source": str(b[5].id),  "target": str(b[6].id), "flow_type": "object"},
+            {"id": "f-b6-b7",  "source": str(b[6].id),  "target": str(b[7].id), "flow_type": "control"},
+            {"id": "f-b7-end", "source": str(b[7].id),  "target": "end",        "flow_type": "control"},
+        ]
         await session.flush()
 
         # ── Epics / Features / Stories / Tasks ────────────────────────────────
