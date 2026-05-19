@@ -38,9 +38,6 @@ from app.schemas.project_business import (
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
-    ProjectGoalObjectiveCreate,
-    ProjectGoalObjectiveResponse,
-    ProjectGoalObjectiveUpdate,
     ProjectGoalResponse,
     ProjectGoalUpdate,
     ProjectRuleCreate,
@@ -253,56 +250,6 @@ async def delete_rule(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_rule(project_id, rule_id)
-
-
-# ── Goal Objectives ───────────────────────────────────────────────────────────
-
-@router.post("/goals/{goal_id}/objectives", response_model=ApiResponse[ProjectGoalObjectiveResponse], status_code=status.HTTP_201_CREATED, tags=["Goal Objectives"])
-async def create_objective(
-    project_id: uuid.UUID,
-    goal_id: uuid.UUID,
-    body: ProjectGoalObjectiveCreate,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return created(await service.create_objective(project_id, goal_id, body))
-
-
-@router.get("/goals/{goal_id}/objectives", response_model=ApiResponse[list[ProjectGoalObjectiveResponse]], tags=["Goal Objectives"])
-async def list_objectives(
-    project_id: uuid.UUID,
-    goal_id: uuid.UUID,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return ok(await service.list_objectives(project_id, goal_id))
-
-
-@router.patch("/goals/{goal_id}/objectives/{objective_id}", response_model=ApiResponse[ProjectGoalObjectiveResponse], tags=["Goal Objectives"])
-async def update_objective(
-    project_id: uuid.UUID,
-    goal_id: uuid.UUID,
-    objective_id: uuid.UUID,
-    body: ProjectGoalObjectiveUpdate,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return ok(await service.update_objective(project_id, goal_id, objective_id, body))
-
-
-@router.delete("/goals/{goal_id}/objectives/{objective_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Goal Objectives"])
-async def delete_objective(
-    project_id: uuid.UUID,
-    goal_id: uuid.UUID,
-    objective_id: uuid.UUID,
-    user: User = Depends(current_user),
-    service: ProjectBusinessService = Depends(get_project_business_service),
-):
-    await require_project_access(project_id, user, service.db)
-    await service.delete_objective(project_id, goal_id, objective_id)
 
 
 # ── Constraints ───────────────────────────────────────────────────────────────

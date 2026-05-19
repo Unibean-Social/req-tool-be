@@ -11,6 +11,17 @@ class ProjectCreateRequest(BaseModel):
     context: str | None = None
     problems: list[str] = []
     proposed_solutions: list[str] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    budget: Decimal | None = Field(None, ge=0)
+    executive_summary: str | None = None
+    roi_notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ProjectCreateRequest":
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be >= start_date")
+        return self
 
 
 class ProjectUpdateRequest(BaseModel):

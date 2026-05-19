@@ -28,6 +28,7 @@ class ProjectGoalCreate(BaseModel):
     priority: GoalPriority = GoalPriority.medium
     success_metric: str | None = None
     target_date: date | None = None
+    objectives: list[str] = []
 
 
 class ProjectGoalUpdate(BaseModel):
@@ -36,6 +37,7 @@ class ProjectGoalUpdate(BaseModel):
     priority: GoalPriority | None = None
     success_metric: str | None = None
     target_date: date | None = None
+    objectives: list[str] | None = None
 
 
 class ProjectGoalResponse(BaseModel):
@@ -48,6 +50,7 @@ class ProjectGoalResponse(BaseModel):
     priority: GoalPriority
     success_metric: str | None
     target_date: date | None
+    objectives: list["ProjectGoalObjectiveResponse"] = []
     created_at: datetime
     updated_at: datetime
 

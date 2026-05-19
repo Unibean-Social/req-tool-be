@@ -36,6 +36,11 @@ class ProjectService:
             context=body.context,
             problems=body.problems,
             proposed_solutions=body.proposed_solutions,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            budget=body.budget,
+            executive_summary=body.executive_summary,
+            roi_notes=body.roi_notes,
         )
         self.db.add(project)
         await self.db.flush()

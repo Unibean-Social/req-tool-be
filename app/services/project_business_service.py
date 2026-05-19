@@ -38,9 +38,6 @@ from app.schemas.project_business import (
     ProjectFlowResponse,
     ProjectFlowUpdate,
     ProjectGoalCreate,
-    ProjectGoalObjectiveCreate,
-    ProjectGoalObjectiveResponse,
-    ProjectGoalObjectiveUpdate,
     ProjectGoalResponse,
     ProjectGoalUpdate,
     ProjectRuleCreate,
@@ -67,17 +64,26 @@ class ProjectBusinessService:
         )
         self.db.add(obj)
         await self.db.flush()
+        if body.objectives:
+            self.db.add_all([ProjectGoalObjective(goal_id=obj.id, description=d) for d in body.objectives])
+            await self.db.flush()
+        await self.db.refresh(obj, attribute_names=["objectives"])
         return ProjectGoalResponse.model_validate(obj)
 
     async def list_goals(self, project_id: uuid.UUID) -> list[ProjectGoalResponse]:
         result = await self.db.execute(
-            select(ProjectGoal).where(ProjectGoal.project_id == project_id).order_by(ProjectGoal.order)
+            select(ProjectGoal)
+            .where(ProjectGoal.project_id == project_id)
+            .options(selectinload(ProjectGoal.objectives))
+            .order_by(ProjectGoal.order)
         )
         return [ProjectGoalResponse.model_validate(g) for g in result.scalars().all()]
 
     async def update_goal(self, project_id: uuid.UUID, goal_id: uuid.UUID, body: ProjectGoalUpdate) -> ProjectGoalResponse:
         result = await self.db.execute(
-            select(ProjectGoal).where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
+            select(ProjectGoal)
+            .where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
+            .options(selectinload(ProjectGoal.objectives))
         )
         obj = result.scalar_one_or_none()
         if not obj:
@@ -92,6 +98,14 @@ class ProjectBusinessService:
             obj.success_metric = body.success_metric
         if body.target_date is not None:
             obj.target_date = body.target_date
+        if body.objectives is not None:
+            for existing in list(obj.objectives):
+                await self.db.delete(existing)
+            await self.db.flush()
+            if body.objectives:
+                self.db.add_all([ProjectGoalObjective(goal_id=obj.id, description=d) for d in body.objectives])
+                await self.db.flush()
+            await self.db.refresh(obj, attribute_names=["objectives"])
         return ProjectGoalResponse.model_validate(obj)
 
     async def delete_goal(self, project_id: uuid.UUID, goal_id: uuid.UUID) -> None:
@@ -499,54 +513,6 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy constraint")
-        await self.db.delete(obj)
-
-    # ── Goal Objectives ───────────────────────────────────────────────────────
-
-    async def create_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, body: ProjectGoalObjectiveCreate) -> ProjectGoalObjectiveResponse:
-        goal = await self.db.execute(
-            select(ProjectGoal).where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
-        )
-        if not goal.scalar_one_or_none():
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy goal")
-        obj = ProjectGoalObjective(goal_id=goal_id, description=body.description)
-        self.db.add(obj)
-        await self.db.flush()
-        await self.db.refresh(obj)
-        return ProjectGoalObjectiveResponse.model_validate(obj)
-
-    async def list_objectives(self, project_id: uuid.UUID, goal_id: uuid.UUID) -> list[ProjectGoalObjectiveResponse]:
-        goal = await self.db.execute(
-            select(ProjectGoal).where(ProjectGoal.id == goal_id, ProjectGoal.project_id == project_id)
-        )
-        if not goal.scalar_one_or_none():
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy goal")
-        result = await self.db.execute(
-            select(ProjectGoalObjective).where(ProjectGoalObjective.goal_id == goal_id).order_by(ProjectGoalObjective.created_at)
-        )
-        return [ProjectGoalObjectiveResponse.model_validate(o) for o in result.scalars().all()]
-
-    async def update_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, objective_id: uuid.UUID, body: ProjectGoalObjectiveUpdate) -> ProjectGoalObjectiveResponse:
-        result = await self.db.execute(
-            select(ProjectGoalObjective)
-            .join(ProjectGoal)
-            .where(ProjectGoalObjective.id == objective_id, ProjectGoalObjective.goal_id == goal_id, ProjectGoal.project_id == project_id)
-        )
-        obj = result.scalar_one_or_none()
-        if not obj:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy objective")
-        obj.description = body.description
-        return ProjectGoalObjectiveResponse.model_validate(obj)
-
-    async def delete_objective(self, project_id: uuid.UUID, goal_id: uuid.UUID, objective_id: uuid.UUID) -> None:
-        result = await self.db.execute(
-            select(ProjectGoalObjective)
-            .join(ProjectGoal)
-            .where(ProjectGoalObjective.id == objective_id, ProjectGoalObjective.goal_id == goal_id, ProjectGoal.project_id == project_id)
-        )
-        obj = result.scalar_one_or_none()
-        if not obj:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy objective")
         await self.db.delete(obj)
 
     # ── Business Requirements ─────────────────────────────────────────────────
