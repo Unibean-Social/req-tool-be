@@ -215,6 +215,9 @@ class SwimlaneAction(BaseModel):
     notation: Literal["action", "objectNode", "decision", "merge", "fork", "join"] = "action"
     index: int | None = None
     y: float
+    label: str | None = None
+    width: float | None = None
+    height: float | None = None
 
 
 class SwimlaneFlow(BaseModel):
