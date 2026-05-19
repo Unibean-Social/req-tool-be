@@ -1,9 +1,24 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.models.project_business import RuleType
+
+
+def _normalize_action_description(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("description không được để trống")
+    words = value.split()
+    if len(words) < 2:
+        raise ValueError("description phải có ít nhất 2 từ theo mẫu '{Actor} {hành động}'")
+    # Capitalize first character (handles ASCII and Unicode/Vietnamese)
+    value = value[0].upper() + value[1:]
+    # Ensure ends with sentence-ending punctuation
+    if value[-1] not in ".!?":
+        value += "."
+    return value
 
 
 class ProjectGoalCreate(BaseModel):
@@ -63,11 +78,21 @@ class ProjectFlowActionCreate(BaseModel):
     description: str
     actor_id: uuid.UUID | None = None
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, v: str) -> str:
+        return _normalize_action_description(v)
+
 
 class ProjectFlowActionUpdate(BaseModel):
     order: int | None = None
     description: str | None = None
     actor_id: uuid.UUID | None = None
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, v: str | None) -> str | None:
+        return _normalize_action_description(v) if v is not None else v
 
 
 class ProjectFlowActionResponse(BaseModel):

@@ -127,7 +127,7 @@ async def test_create_flow_action_minimal(client):
     )
     assert r.status_code == 201, r.text
     action = r.json()["data"]
-    assert action["description"] == "Student selects course"
+    assert action["description"] == "Student selects course."
     assert action["order"] == 1
     assert action["actor_id"] is None
     assert action["rules"] == []
@@ -171,7 +171,7 @@ async def test_update_flow_action_description_and_order(client):
     )
     assert r.status_code == 200, r.text
     updated = r.json()["data"]
-    assert updated["description"] == "Updated description"
+    assert updated["description"] == "Updated description."
     assert updated["order"] == 5
 
 
@@ -201,7 +201,7 @@ async def test_update_flow_action_404_unknown(client):
 
     r = await client.patch(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions/{uuid.uuid4()}",
-        json={"description": "Ghost"},
+        json={"description": "Ghost action"},
         headers=h,
     )
     assert r.status_code == 404
@@ -254,7 +254,7 @@ async def test_add_rule_to_action_idempotent(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Action", "order": 0},
+        json={"description": "User action", "order": 0},
         headers=h,
     )
     action = r.json()["data"]
@@ -274,7 +274,7 @@ async def test_remove_rule_from_action(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Action", "order": 0},
+        json={"description": "User action", "order": 0},
         headers=h,
     )
     action = r.json()["data"]
@@ -313,7 +313,7 @@ async def test_add_unknown_rule_to_action_404(client):
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
-        json={"description": "Action", "order": 0},
+        json={"description": "User action", "order": 0},
         headers=h,
     )
     action = r.json()["data"]
