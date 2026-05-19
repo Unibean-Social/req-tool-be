@@ -32,10 +32,8 @@ def main() -> None:
     if payload.get("agent_id"):
         return
 
-    # Require stable session ID — no getppid() fallback (collides across sessions on Windows)
-    session_id = os.environ.get("CLAUDE_SESSION_ID")
-    if not session_id:
-        return
+    # Use same fallback chain as suggest_compact.py for counter file compatibility
+    session_id = os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("PPID", "default")
 
     cwd = payload.get("cwd", os.getcwd())
     root = find_repo_root(cwd)
