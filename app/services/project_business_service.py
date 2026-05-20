@@ -192,7 +192,7 @@ class ProjectBusinessService:
                 for aid, name in seen_actor_ids.items()
             ]
             templates.append(FlowTemplateResponse(
-                id=flow.id,
+                flow_id=flow.id,
                 code=flow.code,
                 name=flow.name,
                 actors=actors,

@@ -324,7 +324,7 @@ class FlowTemplateStepResponse(BaseModel):
 
 
 class FlowTemplateResponse(BaseModel):
-    id: uuid.UUID
+    flow_id: uuid.UUID
     code: str
     name: str
     actors: list[FlowTemplateActorResponse]
