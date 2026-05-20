@@ -18,9 +18,12 @@ logger = logging.getLogger(__name__)
 
 # ── Rule-based patterns ────────────────────────────────────────────────────────
 
+# Decision = explicit branch point, NOT the act of validating/checking.
+# Removed: validate, check, xác nhận, hợp lệ — these are action verbs, not branch indicators.
 _RE_DECISION = re.compile(
-    r"\b(nếu|kiểm tra|xác nhận|hợp lệ|điều kiện|phân nhánh|"
-    r"if|check|validate|is valid|condition|gateway)\b",
+    r"\b(nếu|điều kiện|phân nhánh|"
+    r"if\b|is valid|condition|gateway)\b"
+    r"|[?？]\s*$",
     re.IGNORECASE,
 )
 _RE_FORK = re.compile(
@@ -41,10 +44,10 @@ _RE_MERGE = re.compile(
 def detect_notation_rules(text: str) -> NotationType:
     if _RE_DECISION.search(text):
         return "decision"
-    if _RE_FORK.search(text):
-        return "fork"
     if _RE_JOIN.search(text):
         return "join"
+    if _RE_FORK.search(text):
+        return "fork"
     if _RE_MERGE.search(text):
         return "merge"
     return "action"
@@ -57,10 +60,10 @@ You are a UML Activity Diagram classifier. Given an action step description, \
 output exactly one notation type with no extra text.
 
 Notation types:
-- action       : a regular activity performed by an actor
+- action       : an activity or task performed by an actor (includes verbs like validate, check, confirm, send, fill, review)
 - objectNode   : a data object or artifact (noun phrase, not an activity)
-- decision     : conditional check or branch (if/else, validate, gateway)
-- merge        : converges multiple conditional paths into one path
+- decision     : a BRANCH POINT where the flow splits into yes/no paths based on a condition (if/else, conditional gateway). NOT the act of validating or checking.
+- merge        : converges multiple conditional paths back into one
 - fork         : splits one path into parallel concurrent branches
 - join         : synchronizes parallel branches back into one path
 
