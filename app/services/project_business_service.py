@@ -171,7 +171,8 @@ class ProjectBusinessService:
             select(ProjectFlow)
             .where(ProjectFlow.project_id == project_id, ProjectFlow.id == flow_id)
             .options(
-                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor)
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor),
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules),
             )
             .order_by(ProjectFlow.code)
         )
@@ -190,6 +191,7 @@ class ProjectBusinessService:
                     step=action.order + 1,
                     description=action.description,
                     actor=actor_name,
+                    rules=[r.rule_def for r in action.rules],
                 ))
             actors = [
                 FlowTemplateActorResponse(id=aid, name=name)
@@ -343,6 +345,7 @@ class ProjectBusinessService:
                 existing_cache[entry["id"]] = entry
 
         actions_with_notation: list[dict] = []
+        all_cached = True
         for action in sorted_actions:
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
             actor_name = action.actor.name if action.actor else None
@@ -367,6 +370,7 @@ class ProjectBusinessService:
                 else:
                     action_entry["label"] = cached.get("label")
             else:
+                all_cached = False
                 bedrock_kwargs = dict(
                     access_key=settings.aws_access_key_id,
                     secret_key=settings.aws_secret_access_key,
@@ -411,8 +415,8 @@ class ProjectBusinessService:
         # Stage 5a: rule-based conflict fix (always runs — no external deps)
         layout = fix_layout(layout)
 
-        # Stage 5b: Bedrock AI position optimizer (only when AWS keys present)
-        if settings.aws_access_key_id and settings.aws_secret_access_key:
+        # Stage 5b: Bedrock AI position optimizer
+        if not all_cached and settings.aws_access_key_id and settings.aws_secret_access_key:
             layout = await review_positions(
                 layout,
                 access_key=settings.aws_access_key_id,

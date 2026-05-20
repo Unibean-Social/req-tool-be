@@ -362,6 +362,7 @@ class FlowTemplateStepResponse(BaseModel):
     step: int
     description: str
     actor: str | None
+    rules: list[str] = []
 
 
 class FlowTemplateResponse(BaseModel):
