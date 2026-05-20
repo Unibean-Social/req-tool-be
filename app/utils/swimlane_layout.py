@@ -271,52 +271,65 @@ def _build_flows(
 # ── Stage 5: review_positions ──────────────────────────────────────────────────
 
 _REVIEW_PROMPT = """\
-You are a UML swimlane diagram layout validator. You receive exact node positions calculated \
-by a rule-based engine. Your job is to detect violations only — do NOT invent new positions, \
-do NOT move nodes unless a rule below is provably violated by the given numbers.
+You are a UML swimlane diagram layout optimizer. A rule-based engine has produced an initial \
+layout. Your role is to reason about the full diagram and suggest improved positions that make \
+it cleaner, more readable, and visually balanced — not just fix violations.
 
-## Context
-- Total lanes: {lane_count}
-- Total nodes: {node_count} (including start/end)
-- Canvas width: {canvas_width}px
+## Diagram context
+- Lanes: {lane_count} | Nodes: {node_count} (incl. start/end) | Canvas width: {canvas_width}px
+- Reading direction: top-to-bottom, left-to-right across lanes
 
-## Lane geometry (authoritative — do not change lane boundaries)
+## Lane geometry (fixed — do not change x_left/x_right boundaries)
 {lane_info}
 
-## Nodes (id, notation, lane, current x/y/width/height, label length in chars)
+## Current node positions
 {nodes_json}
 
-## Flows (edges between nodes)
+## Flow topology (edges, guards, handles)
 {flows_json}
 
-## Validation rules — check each node against these, using the EXACT numbers above
+## Optimization goals — reason about ALL of these holistically
 
-1. **Label overflow** — char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px
-   - action/objectNode: usable_w = width - 24; chars_per_line = floor(usable_w / 8.5)
-     lines = ceil(label_chars / chars_per_line); required_height = lines * 22 + 20
-     If current height < required_height → set height = required_height
-   - decision: usable_w = width * 0.6 - 24; apply same formula; cap width at {max_node_width}px
+### 1. Label fit
+- char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px, max_lines=5
+- action/objectNode: usable_w = width - 24; lines = ceil(label_chars / floor(usable_w / 8.5))
+  required_height = lines * 22 + 20; cap width at {max_node_width}px
+- decision diamond: usable_w = width * 0.6 - 24; same formula; minimum height = width * 0.7
 
-2. **Lane boundary** — node center x must satisfy:
-   - x - width/2 >= lane_x_left + 20  AND  x + width/2 <= lane_x_right - 20
-   - If violated: set x = lane_x_center (use the x_center from Lane geometry above)
+### 2. Visual breathing room
+- Minimum gap between consecutive nodes (same lane): prev.height/2 + 80 + next.height/2
+- Decision nodes deserve extra space: add 30px before AND after each decision
+- Fork/join bars (height=20): add 20px extra above and below
+- Prefer consistent rhythm — if most gaps in a lane are ~120px, align outliers to that
 
-3. **Vertical spacing** — for nodes in the SAME lane, sorted by y:
-   - min_gap = prev.height/2 + 80 + next.height/2
-   - If next.y - prev.y < min_gap → set next.y = prev.y + min_gap (cascade down)
+### 3. Cross-lane alignment
+- Nodes that are connected by a horizontal edge (source_handle=left/right) should ideally \
+  share the same y value so the edge is level — adjust either node's y within its spacing constraints
+- Fork output targets in different lanes should be at the same y as the fork node ± 40px
 
-4. **Aspect ratio** — for action/objectNode: if height < 42 (line_height + v_padding) → set height = 42
+### 4. Node sizing
+- Decision nodes: if label is short (< 20 chars), keep base size; if long (> 40 chars), \
+  widen to accommodate without exceeding {max_node_width}px
+- action/objectNode with very long labels (> 60 chars): prefer wider over taller (max width first)
 
-## STRICT output rules
-- Only include nodes where you changed at least one value
-- Do NOT change x unless rule 2 is violated
-- Do NOT guess or estimate — use only the numbers provided above
-- Do NOT add explanation, markdown, or commentary
+### 5. Lane x centering
+- Each node's x must be the lane's x_center (from lane geometry above)
+- Only deviate from x_center if the node is wider than the lane — then widen the lane's \
+  conceptual center, but do not violate lane_x_left+20 / lane_x_right-20 bounds
 
-Return exactly:
+## Hard constraints (never violate)
+- x - width/2 >= lane_x_left + 20
+- x + width/2 <= lane_x_right - 20
+- y > 0 for all nodes
+- Preserve topological order: if node A flows into node B in the same lane, A.y < B.y
+
+## Output
+Return ONLY compact JSON — no explanation, no markdown, no commentary.
+Only include nodes where you are changing at least one value.
+
 {{"nodes": [{{"id": "...", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}}]}}
 
-If no violations found: {{"nodes": []}}\
+If the layout is already optimal: {{"nodes": []}}\
 """
 
 
