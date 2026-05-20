@@ -64,6 +64,10 @@ class EpicResponse(BaseModel):
     priority: Priority
     labels: Any
     references: Any = None
+    total_story_points: int = 0
+    total_business_value: int = 0
+    feature_count: int = 0
+    story_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -76,7 +80,6 @@ class FeatureCreateRequest(BaseModel):
     description: str | None = None
     priority: Priority = Priority.medium
     labels: list[str] = []
-    nfr_note: str | None = None
 
 
 class FeatureUpdateRequest(BaseModel):
@@ -85,7 +88,6 @@ class FeatureUpdateRequest(BaseModel):
     status: ItemStatus | None = None
     priority: Priority | None = None
     labels: list[str] | None = None
-    nfr_note: str | None = None
 
     @field_validator("status")
     @classmethod
@@ -107,9 +109,11 @@ class FeatureResponse(BaseModel):
     status: ItemStatus
     priority: Priority
     labels: Any
-    nfr_note: str | None = None
     references: Any = None
     warnings: list[str] = []
+    total_story_points: int = 0
+    total_business_value: int = 0
+    story_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -126,6 +130,7 @@ class StoryCreateRequest(BaseModel):
     priority: Priority = Priority.medium
     labels: list[str] = []
     story_points: int | None = None
+    business_value: int | None = None
 
 
 class StoryUpdateRequest(BaseModel):
@@ -138,6 +143,7 @@ class StoryUpdateRequest(BaseModel):
     priority: Priority | None = None
     labels: list[str] | None = None
     story_points: int | None = None
+    business_value: int | None = None
     acceptance_criteria: list[AcceptanceCriteriaIn] | None = None
 
     @field_validator("status")
@@ -181,6 +187,7 @@ class StoryResponse(BaseModel):
     labels: Any
     references: Any = None
     story_points: int | None = None
+    business_value: int | None = None
     acceptance_criteria: list[AcceptanceCriteriaResponse] = []
     created_at: datetime
     updated_at: datetime

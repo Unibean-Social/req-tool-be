@@ -16,7 +16,7 @@ from app.schemas.organization import (
 from app.schemas.response import ApiResponse
 from app.services.organization_service import OrgService
 
-router = APIRouter(prefix="/orgs", tags=["organizations"])
+router = APIRouter(prefix="/orgs", tags=["Organizations"])
 
 
 @router.get("/me", response_model=ApiResponse[list[OrgResponse]])

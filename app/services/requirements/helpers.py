@@ -32,12 +32,6 @@ def _update_parent_references(parent_obj: Any, child_prefix: str, op: str) -> No
     parent_obj.references = refs
 
 
-def get_feature_nfr_warnings(feature: Any) -> list[str]:
-    if not feature.nfr_note or not feature.nfr_note.strip():
-        return ["Feature này chưa có ghi chú về yêu cầu phi chức năng"]
-    return []
-
-
 async def _next_epic_prefix(project_id: uuid.UUID, db: AsyncSession) -> str:
     await db.execute(select(Project).where(Project.id == project_id).with_for_update())
     max_n = await db.scalar(
@@ -49,7 +43,7 @@ async def _next_epic_prefix(project_id: uuid.UUID, db: AsyncSession) -> str:
 
 async def _next_feature_prefix(epic: Epic, db: AsyncSession) -> str:
     await db.execute(select(Epic).where(Epic.id == epic.id).with_for_update())
-    offset = len(epic.prefix) + 3  # len("{epic.prefix}.F") + 1 (1-indexed)
+    offset = len(epic.prefix) + 3  # skip "{prefix}.F" (2 chars) + 1 for SQL 1-based substr
     max_n = await db.scalar(
         select(func.max(cast(func.substr(Feature.prefix, offset), Integer)))
         .where(Feature.epic_id == epic.id)
@@ -59,7 +53,7 @@ async def _next_feature_prefix(epic: Epic, db: AsyncSession) -> str:
 
 async def _next_story_prefix(feature: Feature, db: AsyncSession) -> str:
     await db.execute(select(Feature).where(Feature.id == feature.id).with_for_update())
-    offset = len(feature.prefix) + 3  # len("{feature.prefix}.S") + 1
+    offset = len(feature.prefix) + 3  # skip "{prefix}.S" (2 chars) + 1 for SQL 1-based substr
     max_n = await db.scalar(
         select(func.max(cast(func.substr(Story.prefix, offset), Integer)))
         .where(Story.feature_id == feature.id)
@@ -69,7 +63,7 @@ async def _next_story_prefix(feature: Feature, db: AsyncSession) -> str:
 
 async def _next_task_prefix(story: Story, db: AsyncSession) -> str:
     await db.execute(select(Story).where(Story.id == story.id).with_for_update())
-    offset = len(story.prefix) + 3  # len("{story.prefix}.T") + 1
+    offset = len(story.prefix) + 3  # skip "{prefix}.T" (2 chars) + 1 for SQL 1-based substr
     max_n = await db.scalar(
         select(func.max(cast(func.substr(Task.prefix, offset), Integer)))
         .where(Task.story_id == story.id)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -20,6 +21,9 @@ from app.models.requirements import (
 from app.models.user import User
 from app.schemas.requirements import CloseRequest, StoryBuilderRequest, StoryCreateRequest, StoryUpdateRequest
 from app.services.requirements.helpers import _next_story_prefix, _update_parent_references
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 
 
 class StoryService:
@@ -60,6 +64,7 @@ class StoryService:
             priority=body.priority,
             labels=body.labels,
             story_points=body.story_points,
+            business_value=body.business_value,
         )
         self.db.add(story)
         await self.db.flush()
@@ -98,6 +103,7 @@ class StoryService:
         self, project_id: uuid.UUID, story_id: uuid.UUID, body: StoryUpdateRequest
     ) -> Story:
         story = await self._get_story(project_id, story_id)
+        story_id = story.id
         if body.title is not None:
             story.title = body.title
         if body.description is not None:
@@ -116,17 +122,20 @@ class StoryService:
             story.labels = body.labels
         if body.story_points is not None:
             story.story_points = body.story_points
+        if body.business_value is not None:
+            story.business_value = body.business_value
         if body.acceptance_criteria is not None:
             for ac in story.acceptance_criteria:
                 await self.db.delete(ac)
             await self.db.flush()
             for i, ac in enumerate(body.acceptance_criteria):
                 self.db.add(AcceptanceCriteria(
-                    story_id=story.id,
+                    story_id=story_id,
                     description=ac.description,
                     order=ac.order if ac.order else i,
                 ))
-        return story
+        await self.db.flush()
+        return await self._get_story(project_id, story_id)
 
     async def delete(self, project_id: uuid.UUID, story_id: uuid.UUID) -> None:
         story = await self._get_story(project_id, story_id)
@@ -136,7 +145,12 @@ class StoryService:
         await self.db.delete(story)
 
     async def close(
-        self, project_id: uuid.UUID, story_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        story_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         story = await self._get_story(project_id, story_id)
         if story.status in TERMINAL_STATUSES:
@@ -151,6 +165,10 @@ class StoryService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.story, story.id, body.reason.value, body.comment
+            )
         return close
 
     async def build(self, project_id: uuid.UUID, body: StoryBuilderRequest) -> Story:

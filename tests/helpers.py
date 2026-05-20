@@ -7,16 +7,44 @@ from sqlalchemy import select
 from tests.conftest import BASE
 
 
-async def make_auth_headers(client) -> dict:
+async def make_auth_headers(client, db_session=None) -> dict:
+    """Create a user directly in the DB and return Bearer headers.
+
+    The auth HTTP endpoints (/auth/register, /auth/login) were removed
+    when the application moved to GitHub-only OAuth.  Tests generate tokens
+    directly via the security module so they remain independent of any
+    external OAuth flow.
+    """
+    from app.models.user import User
+    from app.core.security import create_access_token, hash_password
+
+    # Resolve the active session from the dependency override when no
+    # explicit session is provided.
+    if db_session is None:
+        from app.database import get_db
+        from app.main import app as _app
+        override = _app.dependency_overrides.get(get_db)
+        if override is None:
+            raise RuntimeError("make_auth_headers: no db_session and no get_db override active")
+        # The override is an async generator factory; iterate once to obtain the session.
+        gen = override()
+        try:
+            db_session = await gen.__anext__()
+        except StopAsyncIteration:
+            raise RuntimeError("make_auth_headers: override yielded nothing")
+
     uid = uuid_mod.uuid4().hex[:8]
     email = f"user-{uid}@example.com"
-    await client.post(
-        f"{BASE}/auth/register",
-        json={"email": email, "password": "Secret123!", "full_name": f"User {uid}"},
+    user = User(
+        email=email,
+        hashed_password=hash_password("Secret123!"),
+        full_name=f"User {uid}",
+        is_active=True,
     )
-    resp = await client.post(f"{BASE}/auth/login", json={"email": email, "password": "Secret123!"})
-    assert resp.status_code == 200, resp.text
-    return {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
+    db_session.add(user)
+    await db_session.flush()
+    token = create_access_token(str(user.id), user.role)
+    return {"Authorization": f"Bearer {token}"}
 
 
 async def create_org(client, h: dict) -> dict:
@@ -30,7 +58,17 @@ async def create_project(client, h: dict, org_id: str) -> dict:
     slug = f"proj-{uuid_mod.uuid4().hex[:8]}"
     r = await client.post(
         f"{BASE}/orgs/{org_id}/projects",
-        json={"name": slug, "slug": slug, "description": "test"},
+        json={"name": slug, "slug": slug, "description": "test", "proposed_solutions": []},
+        headers=h,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["data"]
+
+
+async def create_actor(client, h: dict, pid: str, name: str = "Tester") -> dict:
+    r = await client.post(
+        f"{BASE}/projects/{pid}/actors",
+        json={"name": name, "role_description": "Test actor"},
         headers=h,
     )
     assert r.status_code == 201, r.text
@@ -38,8 +76,11 @@ async def create_project(client, h: dict, org_id: str) -> dict:
 
 
 async def create_epic(
-    client, h: dict, pid: str, actor_id: str, title: str = "Epic", labels: list | None = None
+    client, h: dict, pid: str, actor_id: str | None = None, title: str = "Epic", labels: list | None = None
 ) -> dict:
+    if actor_id is None:
+        actor = await create_actor(client, h, pid)
+        actor_id = actor["id"]
     r = await client.post(
         f"{BASE}/projects/{pid}/actors/{actor_id}/epics",
         json={"title": title, "labels": labels or []},
@@ -82,8 +123,8 @@ async def create_story(client, h: dict, pid: str, feature_id: str, suffix: str =
 
 async def create_task(client, h: dict, pid: str, story_id: str, title: str = "Task") -> dict:
     r = await client.post(
-        f"{BASE}/projects/{pid}/stories/{story_id}/tasks",
-        json={"title": title, "labels": []},
+        f"{BASE}/projects/{pid}/tasks",
+        json={"title": title, "story_id": story_id, "labels": []},
         headers=h,
     )
     assert r.status_code == 201, r.text

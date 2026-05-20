@@ -1,4 +1,4 @@
-"""Tests for requirement CRUD, BP-07 auto-references, and BP-10 NFR advisory."""
+"""Tests for requirement CRUD, auto-references, and NFR advisory."""
 import uuid
 
 import pytest
@@ -17,9 +17,6 @@ from tests.helpers import (
 )
 from tests.conftest import BASE
 
-BP10_MSG = "BP-10: No non-functional requirement note provided for this feature"
-
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -30,7 +27,7 @@ async def _setup(client):
     return h, proj["id"]
 
 
-# ── BP-07: auto-references ────────────────────────────────────────────────────
+# ── Auto-references ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -125,71 +122,3 @@ async def test_multiple_features_accumulate_in_epic_references(client, db_sessio
     assert f2["prefix"] in refs
 
 
-# ── BP-10: NFR advisory ───────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_feature_without_nfr_note_has_warning(client):
-    h, pid = await _setup(client)
-    epic = await create_epic(client, h, pid)
-    r = await client.post(
-        f"{BASE}/projects/{pid}/epics/{epic['id']}/features",
-        json={"title": "No NFR", "labels": []},
-        headers=h,
-    )
-    assert r.status_code == 201
-    assert BP10_MSG in r.json()["data"].get("warnings", [])
-
-
-@pytest.mark.asyncio
-async def test_feature_whitespace_nfr_note_has_warning(client):
-    h, pid = await _setup(client)
-    epic = await create_epic(client, h, pid)
-    r = await client.post(
-        f"{BASE}/projects/{pid}/epics/{epic['id']}/features",
-        json={"title": "Blank NFR", "labels": [], "nfr_note": "   "},
-        headers=h,
-    )
-    assert r.status_code == 201
-    assert BP10_MSG in r.json()["data"].get("warnings", [])
-
-
-@pytest.mark.asyncio
-async def test_feature_with_nfr_note_has_no_warning(client):
-    h, pid = await _setup(client)
-    epic = await create_epic(client, h, pid)
-    r = await client.post(
-        f"{BASE}/projects/{pid}/epics/{epic['id']}/features",
-        json={"title": "With NFR", "labels": [], "nfr_note": "Response < 200ms"},
-        headers=h,
-    )
-    assert r.status_code == 201
-    assert r.json()["data"].get("warnings", []) == []
-
-
-@pytest.mark.asyncio
-async def test_feature_update_without_nfr_has_warning(client):
-    h, pid = await _setup(client)
-    epic = await create_epic(client, h, pid)
-    feature = await create_feature(client, h, pid, epic["id"])
-    r = await client.patch(
-        f"{BASE}/projects/{pid}/features/{feature['id']}",
-        json={"title": "Updated"},
-        headers=h,
-    )
-    assert r.status_code == 200
-    assert BP10_MSG in r.json()["data"].get("warnings", [])
-
-
-@pytest.mark.asyncio
-async def test_feature_update_adding_nfr_clears_warning(client):
-    h, pid = await _setup(client)
-    epic = await create_epic(client, h, pid)
-    feature = await create_feature(client, h, pid, epic["id"])
-    r = await client.patch(
-        f"{BASE}/projects/{pid}/features/{feature['id']}",
-        json={"nfr_note": "No data loss under any failure scenario."},
-        headers=h,
-    )
-    assert r.status_code == 200
-    assert r.json()["data"].get("warnings", []) == []

@@ -14,7 +14,7 @@ from app.schemas.response import ApiResponse
 from app.services.actor_service import ActorService
 from app.services.requirements.epic_service import EpicService
 
-router = APIRouter(prefix="/projects/{project_id}/actors", tags=["actors"])
+router = APIRouter(prefix="/projects/{project_id}/actors", tags=["Actors"])
 
 
 @router.post("", response_model=ApiResponse[ActorResponse], status_code=status.HTTP_201_CREATED)

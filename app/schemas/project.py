@@ -1,6 +1,8 @@
 import uuid
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import date, datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ProjectCreateRequest(BaseModel):
@@ -8,11 +10,18 @@ class ProjectCreateRequest(BaseModel):
     description: str | None = None
     context: str | None = None
     problems: list[str] = []
-    stakeholders: list[str] = []
-    business_goals: list[str] = []
-    business_flows: list[str] = []
-    business_rules: list[str] = []
-    proposed_solutions: list[str] = []
+    proposed_solutions: list[str] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    budget: Decimal | None = Field(None, ge=0)
+    executive_summary: str | None = None
+    roi_notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ProjectCreateRequest":
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be >= start_date")
+        return self
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -20,11 +29,18 @@ class ProjectUpdateRequest(BaseModel):
     description: str | None = None
     context: str | None = None
     problems: list[str] | None = None
-    stakeholders: list[str] | None = None
-    business_goals: list[str] | None = None
-    business_flows: list[str] | None = None
-    business_rules: list[str] | None = None
     proposed_solutions: list[str] | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    budget: Decimal | None = Field(None, ge=0)
+    executive_summary: str | None = None
+    roi_notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ProjectUpdateRequest":
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be >= start_date")
+        return self
 
 
 class ProjectResponse(BaseModel):
@@ -37,9 +53,10 @@ class ProjectResponse(BaseModel):
     description: str | None
     context: str | None = None
     problems: list[str] = []
-    stakeholders: list[str] = []
-    business_goals: list[str] = []
-    business_flows: list[str] = []
-    business_rules: list[str] = []
     proposed_solutions: list[str] = []
+    start_date: date | None = None
+    end_date: date | None = None
+    budget: Decimal | None = None
+    executive_summary: str | None = None
+    roi_notes: str | None = None
     created_at: datetime

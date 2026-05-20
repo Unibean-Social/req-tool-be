@@ -14,12 +14,14 @@ class GithubConnection(AuditMixin, Base):
     installation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Stored Fernet-encrypted; use app.core.crypto to read/write
     access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    # not_started | in_progress | completed
+    # not_started | in_progress | completed | failed
     bootstrap_status: Mapped[str] = mapped_column(String(50), nullable=False, default="not_started")
     # manual | auto_push
     sync_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     # Fernet-encrypted webhook secret
     webhook_secret: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # User who connected this project's GitHub repo
+    connected_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="github_connection")  # noqa: F821

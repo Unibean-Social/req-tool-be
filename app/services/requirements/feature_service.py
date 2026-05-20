@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType
+from app.models.requirements import TERMINAL_STATUSES, CloseReason, Epic, Feature, ItemStatus, ItemType, Story
 from app.models.user import User
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 from app.schemas.requirements import (
     CloseRequest,
     FeatureCreateRequest,
     FeatureResponse,
     FeatureUpdateRequest,
 )
-from app.services.requirements.helpers import get_feature_nfr_warnings, _next_feature_prefix, _update_parent_references
+from app.services.requirements.helpers import _next_feature_prefix, _update_parent_references
 
 
 class FeatureService:
@@ -26,6 +31,7 @@ class FeatureService:
             select(Feature)
             .join(Epic, Feature.epic_id == Epic.id)
             .where(Feature.id == feature_id, Epic.project_id == project_id)
+            .options(selectinload(Feature.stories))
         )
         feature = result.scalar_one_or_none()
         if not feature:
@@ -34,8 +40,13 @@ class FeatureService:
 
     def _to_response(self, feature: Feature) -> FeatureResponse:
         resp = FeatureResponse.model_validate(feature)
-        w = get_feature_nfr_warnings(feature)
-        return resp.model_copy(update={"warnings": w}) if w else resp
+        stories = feature.stories if feature.stories is not None else []
+        open_stories = [s for s in stories if s.status not in TERMINAL_STATUSES]
+        return resp.model_copy(update={
+            "total_story_points": sum(s.story_points or 0 for s in open_stories),
+            "total_business_value": sum(s.business_value or 0 for s in open_stories),
+            "story_count": len(open_stories),
+        })
 
     async def create(
         self, project_id: uuid.UUID, epic_id: uuid.UUID, body: FeatureCreateRequest
@@ -54,12 +65,12 @@ class FeatureService:
             description=body.description,
             priority=body.priority,
             labels=body.labels,
-            nfr_note=body.nfr_note,
         )
         self.db.add(feature)
         await self.db.flush()
+        feature_id = feature.id
         _update_parent_references(epic, feature.prefix, "add")
-        return self._to_response(feature)
+        return self._to_response(await self._get_feature(project_id, feature_id))
 
     async def list(
         self,
@@ -73,6 +84,7 @@ class FeatureService:
             select(Feature)
             .join(Epic, Feature.epic_id == Epic.id)
             .where(Epic.project_id == project_id)
+            .options(selectinload(Feature.stories))
         )
         if epic_id:
             stmt = stmt.where(Feature.epic_id == epic_id)
@@ -99,9 +111,8 @@ class FeatureService:
             feature.priority = body.priority
         if body.labels is not None:
             feature.labels = body.labels
-        if body.nfr_note is not None:
-            feature.nfr_note = body.nfr_note
-        return self._to_response(feature)
+        await self.db.flush()
+        return self._to_response(await self._get_feature(project_id, feature_id))
 
     async def delete(self, project_id: uuid.UUID, feature_id: uuid.UUID) -> None:
         feature = await self._get_feature(project_id, feature_id)
@@ -111,7 +122,12 @@ class FeatureService:
         await self.db.delete(feature)
 
     async def close(
-        self, project_id: uuid.UUID, feature_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        feature_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         feature = await self._get_feature(project_id, feature_id)
         if feature.status in TERMINAL_STATUSES:
@@ -126,4 +142,8 @@ class FeatureService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.feature, feature.id, body.reason.value, body.comment
+            )
         return close

@@ -45,6 +45,7 @@ class ImportPreviewResponse(BaseModel):
     stories: list[GithubIssuePreview] = []
     tasks: list[GithubIssuePreview] = []
     unclassified: list[GithubIssuePreview] = []
+    truncated: bool = False
 
 
 class ImportMappingItem(BaseModel):

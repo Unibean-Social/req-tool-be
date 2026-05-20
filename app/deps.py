@@ -16,6 +16,12 @@ from app.services.requirements.task_service import TaskService
 from app.services.organization_service import OrgService
 from app.services.project_service import ProjectService
 from app.services.actor_service import ActorService
+from app.services.stakeholder_service import StakeholderService
+from app.services.nfr_service import NFRService
+from app.services.project_business_service import ProjectBusinessService
+from app.services.estimate_service import EstimateService
+from app.services.staleness_service import StalenessService
+from app.services.brd_export_service import BRDExportService
 
 bearer = HTTPBearer()
 
@@ -85,3 +91,27 @@ def get_project_service(db: AsyncSession = Depends(get_db)) -> ProjectService:
 
 def get_actor_service(db: AsyncSession = Depends(get_db)) -> ActorService:
     return ActorService(db)
+
+
+def get_stakeholder_service(db: AsyncSession = Depends(get_db)) -> StakeholderService:
+    return StakeholderService(db)
+
+
+def get_nfr_service(db: AsyncSession = Depends(get_db)) -> NFRService:
+    return NFRService(db)
+
+
+def get_project_business_service(db: AsyncSession = Depends(get_db)) -> ProjectBusinessService:
+    return ProjectBusinessService(db)
+
+
+def get_estimate_service(db: AsyncSession = Depends(get_db)) -> EstimateService:
+    return EstimateService(db)
+
+
+def get_staleness_service(db: AsyncSession = Depends(get_db)) -> StalenessService:
+    return StalenessService(db)
+
+
+def get_brd_export_service(db: AsyncSession = Depends(get_db)) -> BRDExportService:
+    return BRDExportService(db)

@@ -13,7 +13,7 @@ from app.schemas.response import ApiResponse
 from app.schemas.sync import PushReport, PushResultItem, StageRequest, SyncLogResponse, SyncQueueResponse
 from app.services.sync_service import SyncService
 
-router = APIRouter(tags=["sync"])
+router = APIRouter(tags=["Sync"])
 
 
 @router.post(

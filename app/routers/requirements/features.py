@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.deps import current_user, get_feature_service, get_story_service
+from app.deps import current_user, get_feature_service, get_github_service, get_story_service
 from app.models.requirements import ItemStatus
 from app.models.user import User
 from app.schemas.requirements import (
@@ -16,10 +16,11 @@ from app.schemas.requirements import (
     StoryResponse,
 )
 from app.schemas.response import ApiResponse
+from app.services.github_service import GithubService
 from app.services.requirements.feature_service import FeatureService
 from app.services.requirements.story_service import StoryService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["features"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Features"])
 
 
 @router.get("/features", response_model=ApiResponse[list[FeatureResponse]])
@@ -77,9 +78,10 @@ async def close_feature(
     body: CloseRequest,
     user: User = Depends(current_user),
     service: FeatureService = Depends(get_feature_service),
+    github_service: GithubService = Depends(get_github_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.close(project_id, feature_id, body, user))
+    return ok(await service.close(project_id, feature_id, body, user, github_service=github_service))
 
 
 @router.post(

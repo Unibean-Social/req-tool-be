@@ -12,6 +12,7 @@ from app.config import settings
 from app.database import engine
 from app.core.errors import http_exception_handler, validation_exception_handler, unhandled_exception_handler
 from app.routers import admin, github_auth, users, organizations, projects, actors, github, sync
+from app.routers import stakeholders, nfrs, project_business, estimates, health
 from app.routers.requirements import epics, features, stories, tasks
 
 
@@ -79,19 +80,59 @@ api_v1.include_router(stories.router)
 api_v1.include_router(tasks.router)
 api_v1.include_router(github.router)
 api_v1.include_router(sync.router)
+api_v1.include_router(stakeholders.router)
+api_v1.include_router(nfrs.router)
+api_v1.include_router(project_business.router)
+api_v1.include_router(estimates.router)
+api_v1.include_router(health.router)
 
 app.include_router(api_v1)
 
 
-@app.get("/", tags=["health"], include_in_schema=False)
+@app.get("/", tags=["System Health"], include_in_schema=False)
 async def root():
     return {"name": "ReqFlow API", "version": "1.0.0", "docs": "/docs"}
 
 
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["System Health"])
 async def health():
     from sqlalchemy import text
     from app.database import async_session_factory
     async with async_session_factory() as session:
         await session.execute(text("SELECT 1"))
     return {"status": "ok", "db": "connected"}
+
+
+@app.get("/health/bedrock", tags=["System Health"])
+async def health_bedrock():
+    import asyncio
+    from app.config import settings
+
+    if not settings.aws_access_key_id or not settings.aws_secret_access_key:
+        return {
+            "status": "disabled",
+            "model": settings.bedrock_notation_model,
+            "region": settings.aws_region,
+            "message": "AWS credentials not configured — rule-based notation only",
+        }
+
+    def _ping():
+        import boto3
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=settings.aws_region,
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+        )
+        resp = client.converse(
+            modelId=settings.bedrock_notation_model,
+            messages=[{"role": "user", "content": [{"text": "ping"}]}],
+            inferenceConfig={"maxTokens": 5, "temperature": 0.0},
+        )
+        return resp["output"]["message"]["content"][0]["text"].strip()
+
+    try:
+        reply = await asyncio.to_thread(_ping)
+        return {"status": "ok", "model": settings.bedrock_notation_model, "region": settings.aws_region, "reply": reply}
+    except Exception as exc:
+        return {"status": "error", "model": settings.bedrock_notation_model, "region": settings.aws_region, "message": str(exc)}

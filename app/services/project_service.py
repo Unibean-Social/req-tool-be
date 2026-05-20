@@ -35,11 +35,12 @@ class ProjectService:
             description=body.description,
             context=body.context,
             problems=body.problems,
-            stakeholders=body.stakeholders,
-            business_goals=body.business_goals,
-            business_flows=body.business_flows,
-            business_rules=body.business_rules,
             proposed_solutions=body.proposed_solutions,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            budget=body.budget,
+            executive_summary=body.executive_summary,
+            roi_notes=body.roi_notes,
         )
         self.db.add(project)
         await self.db.flush()
@@ -70,16 +71,12 @@ class ProjectService:
             project.context = body.context
         if body.problems is not None:
             project.problems = body.problems
-        if body.stakeholders is not None:
-            project.stakeholders = body.stakeholders
-        if body.business_goals is not None:
-            project.business_goals = body.business_goals
-        if body.business_flows is not None:
-            project.business_flows = body.business_flows
-        if body.business_rules is not None:
-            project.business_rules = body.business_rules
         if body.proposed_solutions is not None:
             project.proposed_solutions = body.proposed_solutions
+        for field in ("start_date", "end_date", "budget", "executive_summary", "roi_notes"):
+            value = getattr(body, field)
+            if value is not None:
+                setattr(project, field, value)
         return project
 
     async def delete(self, org_id: uuid.UUID, project_id: uuid.UUID) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -18,6 +19,9 @@ from app.models.requirements import (
 )
 from app.models.user import User
 from app.schemas.requirements import CloseRequest, TaskCreateRequest, TaskUpdateRequest
+
+if TYPE_CHECKING:
+    from app.services.github_service import GithubService
 from app.services.requirements.helpers import _next_task_prefix, _update_parent_references
 
 
@@ -110,6 +114,8 @@ class TaskService:
             task.category = body.category
         if body.estimated_hours is not None:
             task.estimated_hours = body.estimated_hours
+        await self.db.flush()
+        await self.db.refresh(task)
         return task
 
     async def delete(self, project_id: uuid.UUID, task_id: uuid.UUID) -> None:
@@ -129,7 +135,12 @@ class TaskService:
         await self.db.delete(task)
 
     async def close(
-        self, project_id: uuid.UUID, task_id: uuid.UUID, body: CloseRequest, user: User
+        self,
+        project_id: uuid.UUID,
+        task_id: uuid.UUID,
+        body: CloseRequest,
+        user: User,
+        github_service: GithubService | None = None,
     ) -> CloseReason:
         task = await self._get_task(project_id, task_id)
         if task.status in TERMINAL_STATUSES:
@@ -144,4 +155,8 @@ class TaskService:
         )
         self.db.add(close)
         await self.db.flush()
+        if github_service is not None:
+            await github_service.post_close_comment(
+                project_id, ItemType.task, task.id, body.reason.value, body.comment
+            )
         return close

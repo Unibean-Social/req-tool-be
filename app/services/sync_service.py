@@ -1,13 +1,16 @@
+import time
 import uuid
 from typing import Any
 
 import httpx
+import jwt as _pyjwt
 from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.crypto import decrypt_token
 from app.core.github_client import GithubClient
 from app.core.sync_formatter import format_item
@@ -30,17 +33,58 @@ class SyncService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def _make_app_jwt(self) -> str:
+        now = int(time.time())
+        private_key = settings.github_app_private_key.replace("\\n", "\n")
+        return _pyjwt.encode(
+            {"iat": now - 60, "exp": now + 540, "iss": settings.github_app_id},
+            private_key,
+            algorithm="RS256",
+        )
+
+    async def _generate_installation_token(self, installation_id: str) -> str:
+        app_jwt = self._make_app_jwt()
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                    headers={
+                        "Authorization": f"Bearer {app_jwt}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                return resp.json()["token"]
+            except httpx.HTTPStatusError:
+                raise HTTPException(http_status.HTTP_502_BAD_GATEWAY, detail="Không thể tạo GitHub installation token")
+            except httpx.RequestError:
+                raise HTTPException(http_status.HTTP_502_BAD_GATEWAY, detail="Không thể kết nối GitHub")
+
     async def _require_connection(self, project_id: uuid.UUID) -> GithubConnection:
         result = await self.db.execute(
             select(GithubConnection).where(GithubConnection.project_id == project_id)
         )
         conn = result.scalar_one_or_none()
-        if not conn or not conn.access_token:
+        if not conn or (not conn.installation_id and not conn.access_token):
             raise HTTPException(
                 http_status.HTTP_409_CONFLICT,
                 detail="Chưa kết nối GitHub — vui lòng kết nối dự án trước",
             )
         return conn
+
+    async def _get_client(self, conn: GithubConnection) -> GithubClient:
+        if conn.installation_id:
+            token = await self._generate_installation_token(conn.installation_id)
+        else:
+            token = decrypt_token(conn.access_token) if conn.access_token else None
+        if not token:
+            raise HTTPException(
+                http_status.HTTP_409_CONFLICT,
+                detail="Token GitHub không hợp lệ — vui lòng kết nối lại",
+            )
+        return GithubClient(token)
 
     async def _load_item(self, item_type: str, item_id: uuid.UUID, project_id: uuid.UUID) -> Any:
         if item_type == "epic":
@@ -48,6 +92,7 @@ class SyncService:
         elif item_type == "feature":
             q = (
                 select(Feature)
+                .options(selectinload(Feature.nfrs))
                 .join(Epic, Feature.epic_id == Epic.id)
                 .where(Feature.id == item_id, Epic.project_id == project_id)
             )
@@ -157,8 +202,7 @@ class SyncService:
 
     async def push_items(self, project_id: uuid.UUID) -> PushReport:
         conn = await self._require_connection(project_id)
-        token = decrypt_token(conn.access_token)
-        gh = GithubClient(token)
+        gh = await self._get_client(conn)
 
         rows_result = await self.db.execute(
             select(SyncQueue).where(
@@ -186,8 +230,7 @@ class SyncService:
         self, project_id: uuid.UUID, item_type: ItemType, item_id: uuid.UUID
     ) -> PushResultItem:
         conn = await self._require_connection(project_id)
-        token = decrypt_token(conn.access_token)
-        gh = GithubClient(token)
+        gh = await self._get_client(conn)
 
         item = await self._load_item(item_type.value, item_id, project_id)
         snapshot = format_item(item, item_type.value)

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.core.guards import require_project_access
 from app.core.responses import created, ok
-from app.deps import current_user, get_task_service
+from app.deps import current_user, get_github_service, get_task_service
 from app.models.requirements import ItemStatus
 from app.models.user import User
 from app.schemas.requirements import (
@@ -15,9 +15,10 @@ from app.schemas.requirements import (
     TaskUpdateRequest,
 )
 from app.schemas.response import ApiResponse
+from app.services.github_service import GithubService
 from app.services.requirements.task_service import TaskService
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["tasks"])
+router = APIRouter(prefix="/projects/{project_id}", tags=["Tasks"])
 
 
 @router.post("/tasks", response_model=ApiResponse[TaskResponse], status_code=status.HTTP_201_CREATED)
@@ -86,6 +87,7 @@ async def close_task(
     body: CloseRequest,
     user: User = Depends(current_user),
     service: TaskService = Depends(get_task_service),
+    github_service: GithubService = Depends(get_github_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.close(project_id, task_id, body, user))
+    return ok(await service.close(project_id, task_id, body, user, github_service=github_service))
