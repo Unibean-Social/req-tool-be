@@ -228,8 +228,11 @@ class ProjectBusinessService:
                 "lane_id": item.lane_id,
                 "notation": notation,
                 "index": item.index,
+                "x": item.x,
                 "y": item.y,
-                "label": db_action.description or "",
+                "width": item.width,
+                "height": item.height,
+                "label": item.label if item.label is not None else (db_action.description or ""),
             })
 
         data = payload.model_dump(mode="json")
