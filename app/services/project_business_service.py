@@ -156,6 +156,50 @@ class ProjectBusinessService:
         )
         return [ProjectFlowResponse.model_validate(f) for f in result.scalars().all()]
 
+    async def list_flow_templates(self, project_id: uuid.UUID) -> list:
+        from app.schemas.project_business import (
+            FlowTemplateActorResponse,
+            FlowTemplateResponse,
+            FlowTemplateStepResponse,
+        )
+
+        result = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.project_id == project_id)
+            .options(
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor)
+            )
+            .order_by(ProjectFlow.code)
+        )
+        flows = result.scalars().all()
+
+        templates = []
+        for flow in flows:
+            seen_actor_ids: dict[uuid.UUID, str] = {}
+            steps = []
+            for action in sorted(flow.actions, key=lambda a: a.order):
+                actor_name: str | None = None
+                if action.actor_id and action.actor:
+                    actor_name = action.actor.name
+                    seen_actor_ids[action.actor_id] = action.actor.name
+                steps.append(FlowTemplateStepResponse(
+                    step=action.order + 1,
+                    description=action.description,
+                    actor=actor_name,
+                ))
+            actors = [
+                FlowTemplateActorResponse(id=aid, name=name)
+                for aid, name in seen_actor_ids.items()
+            ]
+            templates.append(FlowTemplateResponse(
+                id=flow.id,
+                code=flow.code,
+                name=flow.name,
+                actors=actors,
+                steps=steps,
+            ))
+        return templates
+
     async def update_flow(self, project_id: uuid.UUID, flow_id: uuid.UUID, body: ProjectFlowUpdate) -> ProjectFlowResponse:
         result = await self.db.execute(
             select(ProjectFlow)
@@ -238,6 +282,17 @@ class ProjectBusinessService:
         data = payload.model_dump(mode="json")
         data["id"] = str(flow_id)
         data["actions"] = enriched_actions
+
+        existing_lanes: dict[str, dict] = {}
+        if flow.swimlane and isinstance(flow.swimlane, dict):
+            for l in flow.swimlane.get("lanes", []):
+                existing_lanes[l["id"]] = l
+        for lane in data["lanes"]:
+            prev = existing_lanes.get(lane["id"], {})
+            if lane.get("width") is None and prev.get("width") is not None:
+                lane["width"] = prev["width"]
+            if lane.get("x_left") is None and prev.get("x_left") is not None:
+                lane["x_left"] = prev["x_left"]
 
         flow.swimlane = data
         await self.db.flush()

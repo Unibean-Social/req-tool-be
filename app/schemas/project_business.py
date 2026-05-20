@@ -308,3 +308,24 @@ class ProjectFlowResponse(BaseModel):
 
 class ProjectFlowDetailResponse(ProjectFlowResponse):
     swimlane: dict | None = None
+
+
+# ── Flow Templates ─────────────────────────────────────────────────────────────
+
+class FlowTemplateActorResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class FlowTemplateStepResponse(BaseModel):
+    step: int
+    description: str
+    actor: str | None
+
+
+class FlowTemplateResponse(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    actors: list[FlowTemplateActorResponse]
+    steps: list[FlowTemplateStepResponse]
