@@ -19,13 +19,13 @@ NotationType = Literal["action", "objectNode", "decision", "merge", "fork", "joi
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-# Base dimensions per notation (width, height) when no label or short label
+# Base dimensions per notation (width, height)
 NODE_DIMS: dict[str, tuple[int, int]] = {
     "action":       (200, 60),
-    "decision":     (160, 80),
+    "decision":     (80,  80),
     "fork":         (160, 20),
     "join":         (160, 20),
-    "merge":        (120, 30),
+    "merge":        (60,  60),
     "objectNode":   (180, 70),
     "initial_node": (30,  30),
     "final_node":   (30,  30),
@@ -115,26 +115,12 @@ def estimate_node_size(notation: str, label: str | None) -> tuple[float, float]:
     """Return (width, height) accounting for label length and notation shape."""
     base_w, base_h = NODE_DIMS.get(notation, NODE_DIMS["action"])
 
-    # Nodes that don't display text as a body label
-    if notation in ("fork", "join", "merge", "initial_node", "final_node") or not label:
+    # Nodes without label text (UML: guards on edges, not inside node)
+    if notation in ("decision", "merge", "fork", "join", "initial_node", "final_node") or not label:
         return float(base_w), float(base_h)
 
-    chars = len(label)
-
-    if notation == "decision":
-        # Diamond: usable text area is ~60% of width due to shape
-        usable_w = max(base_w * 0.6, 80.0)
-        chars_per_line = max(1, int((usable_w - LABEL_H_PADDING) / CHAR_WIDTH))
-        lines = math.ceil(chars / chars_per_line)
-        # Widen diamond if label is long
-        needed_w = min(chars * CHAR_WIDTH * 0.6 + LABEL_H_PADDING + 40, MAX_NODE_WIDTH)
-        w = max(float(base_w), needed_w)
-        # Extra height per extra line (diamond needs proportionally more)
-        extra_lines = max(0, lines - 1)
-        h = max(float(base_h), base_h + extra_lines * LINE_HEIGHT * 1.3)
-        return round(w, 1), round(h, 1)
-
     # action, objectNode: rectangular, wraps text
+    chars = len(label)
     needed_w = min(chars * CHAR_WIDTH + LABEL_H_PADDING, MAX_NODE_WIDTH)
     w = max(float(base_w), needed_w)
 
@@ -290,11 +276,11 @@ it cleaner, more readable, and visually balanced — not just fix violations.
 
 ## Optimization goals — reason about ALL of these holistically
 
-### 1. Label fit
+### 1. Label fit (action / objectNode only — decision/merge/fork/join have no text inside)
 - char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px, max_lines=5
 - action/objectNode: usable_w = width - 24; lines = ceil(label_chars / floor(usable_w / 8.5))
   required_height = lines * 22 + 20; cap width at {max_node_width}px
-- decision diamond: usable_w = width * 0.6 - 24; same formula; minimum height = width * 0.7
+- decision diamond: fixed 80×80 — no label inside; guard text lives on outgoing edges
 
 ### 2. Visual breathing room
 - Minimum gap between consecutive nodes (same lane): prev.height/2 + 80 + next.height/2
@@ -604,7 +590,7 @@ def layout_to_swimlane_dict(layout: SwimlaneLayout, flow_id: str, title: str) ->
                 "index": n.index,
                 "x": n.x,
                 "y": n.y,
-                "label": n.label,
+                "label": n.label if n.notation in ("action", "objectNode") else None,
                 "width": n.width,
                 "height": n.height,
             }
