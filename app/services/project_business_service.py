@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 from fastapi import HTTPException, status
@@ -335,46 +336,73 @@ class ProjectBusinessService:
 
         lane_ids = list(seen.keys())
 
-        # Stage 3: detect notations
+        # Stage 3: detect notations (cache-aware — skip Bedrock when description+actor unchanged)
+        existing_cache: dict[str, dict] = {}
+        for entry in (flow.swimlane or {}).get("actions") or []:
+            if "id" in entry:
+                existing_cache[entry["id"]] = entry
+
         actions_with_notation: list[dict] = []
-        for i, action in enumerate(sorted_actions):
-            notation = await detect_notation(
-                action.description or "",
-                access_key=settings.aws_access_key_id,
-                secret_key=settings.aws_secret_access_key,
-                region=settings.aws_region,
-                model_id=settings.bedrock_notation_model,
-            )
+        for action in sorted_actions:
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
             actor_name = action.actor.name if action.actor else None
-            bedrock_kwargs = dict(
-                access_key=settings.aws_access_key_id,
-                secret_key=settings.aws_secret_access_key,
-                region=settings.aws_region,
-                model_id=settings.bedrock_notation_model,
-            )
-            action_entry: dict = {
-                "id": str(action.id),
-                "lane_id": lane_id,
-                "notation": notation,
-                "order": action.order,
-            }
-            if notation == "decision":
-                yes_g, no_g = await normalize_decision_guards(
-                    action.description or "",
-                    actor_name=actor_name,
-                    **bedrock_kwargs,
-                )
-                action_entry["yes_guard"] = yes_g
-                action_entry["no_guard"] = no_g
-                action_entry["label"] = None
+            desc_hash = hashlib.md5(
+                f"{action.description or ''}|{action.actor_id or ''}".encode()
+            ).hexdigest()
+            cached = existing_cache.get(str(action.id), {})
+
+            if cached.get("_desc_hash") == desc_hash:
+                notation = cached["notation"]
+                action_entry: dict = {
+                    "id": str(action.id),
+                    "lane_id": lane_id,
+                    "notation": notation,
+                    "order": action.order,
+                    "_desc_hash": desc_hash,
+                }
+                if notation == "decision":
+                    action_entry["yes_guard"] = cached.get("yes_guard")
+                    action_entry["no_guard"] = cached.get("no_guard")
+                    action_entry["label"] = None
+                else:
+                    action_entry["label"] = cached.get("label")
             else:
-                action_entry["label"] = await normalize_node_label(
-                    action.description or "",
-                    actor_name=actor_name,
-                    notation=notation,
-                    **bedrock_kwargs,
+                bedrock_kwargs = dict(
+                    access_key=settings.aws_access_key_id,
+                    secret_key=settings.aws_secret_access_key,
+                    region=settings.aws_region,
+                    model_id=settings.bedrock_notation_model,
                 )
+                notation = await detect_notation(
+                    action.description or "",
+                    access_key=settings.aws_access_key_id,
+                    secret_key=settings.aws_secret_access_key,
+                    region=settings.aws_region,
+                    model_id=settings.bedrock_notation_model,
+                )
+                action_entry = {
+                    "id": str(action.id),
+                    "lane_id": lane_id,
+                    "notation": notation,
+                    "order": action.order,
+                    "_desc_hash": desc_hash,
+                }
+                if notation == "decision":
+                    yes_g, no_g = await normalize_decision_guards(
+                        action.description or "",
+                        actor_name=actor_name,
+                        **bedrock_kwargs,
+                    )
+                    action_entry["yes_guard"] = yes_g
+                    action_entry["no_guard"] = no_g
+                    action_entry["label"] = None
+                else:
+                    action_entry["label"] = await normalize_node_label(
+                        action.description or "",
+                        actor_name=actor_name,
+                        notation=notation,
+                        **bedrock_kwargs,
+                    )
             actions_with_notation.append(action_entry)
 
         # Stage 4: calculate positions
