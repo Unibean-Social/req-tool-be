@@ -632,7 +632,10 @@ def layout_to_swimlane_dict(layout: SwimlaneLayout, flow_id: str, title: str) ->
                 "source_handle": f.source_handle,
                 "target_handle": f.target_handle,
                 "guard": f.guard,
+                "label": None,
                 "flow_type": f.flow_type,
+                "label_offset": None,
+                "waypoints": None,
             }
             for f in layout.flows
         ],
