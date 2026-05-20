@@ -379,14 +379,14 @@ class ProjectBusinessService:
         # Stage 4: calculate positions
         layout = calculate_layout(actions_with_notation, lane_ids)
 
-        # Stage 5: review and auto-fix
-        layout = await review_positions(
-            layout,
-            access_key=settings.aws_access_key_id,
-            secret_key=settings.aws_secret_access_key,
-            region=settings.aws_region,
-            model_id=settings.bedrock_notation_model,
-        )
+        # Stage 5: review and auto-fix (temporarily skipped)
+        # layout = await review_positions(
+        #     layout,
+        #     access_key=settings.aws_access_key_id,
+        #     secret_key=settings.aws_secret_access_key,
+        #     region=settings.aws_region,
+        #     model_id=settings.bedrock_notation_model,
+        # )
 
         # Stage 6: finalize
         swimlane = layout_to_swimlane_dict(layout, str(flow.id), flow.name)
