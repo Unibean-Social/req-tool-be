@@ -247,6 +247,14 @@ def _find_convergence(seq: list[NodeLayout], from_index: int) -> NodeLayout:
     return seq[-1]
 
 
+def _find_next_join(seq: list[NodeLayout], from_index: int) -> NodeLayout:
+    """Find the nearest join node at or after seq[from_index]. Falls back to final."""
+    for node in seq[from_index:]:
+        if node.notation == "join":
+            return node
+    return seq[-1]
+
+
 # Antonym table mirrored from label.py so layout has no external import
 _GUARD_ANTONYMS = [
     (r"^Đủ\b",           "Đủ",               "Không đủ"),
@@ -286,28 +294,78 @@ def _build_flows(
             for edge in raw_flows
         ]
 
-    # Auto-generate: linear sequence with proper decision branching
+    # Auto-generate with proper decision branching and fork/join parallel sections
     seq: list[NodeLayout] = [initial] + nodes + [final]
     flows: list[FlowLayout] = []
     emitted: set[tuple[str, str]] = set()
 
-    def emit(src: str, tgt: str, guard: str | None = None) -> None:
+    def emit(
+        src: str, tgt: str,
+        guard: str | None = None,
+        source_handle: str | None = None,
+        target_handle: str | None = None,
+    ) -> None:
         key = (src, tgt)
         if key not in emitted:
-            flows.append(FlowLayout(id=f"f-{src}-{tgt}", source=src, target=tgt, guard=guard))
+            flows.append(FlowLayout(
+                id=f"f-{src}-{tgt}",
+                source=src, target=tgt,
+                guard=guard,
+                source_handle=source_handle,
+                target_handle=target_handle,
+            ))
             emitted.add(key)
 
+    # Pre-scan: find fork→join pairs and mark indices to skip in regular loop.
+    # skip_regular[i] = True means seq[i]→seq[i+1] is handled by fork logic.
+    skip_regular: set[int] = set()
+
+    for i, node in enumerate(seq):
+        if node.notation != "fork":
+            continue
+        join_node = _find_next_join(seq, i + 1)
+        join_idx = next(k for k, n in enumerate(seq) if n.id == join_node.id)
+        parallel = seq[i + 1 : join_idx]  # nodes strictly between fork and join
+
+        # Split parallel nodes into two branches (evenly by position)
+        half = max(1, len(parallel) // 2) if len(parallel) > 1 else len(parallel)
+        branch_a = parallel[:half]
+        branch_b = parallel[half:]
+
+        # fork → branch_a
+        if branch_a:
+            emit(node.id, branch_a[0].id, source_handle="bottom_left")
+            for k in range(len(branch_a) - 1):
+                emit(branch_a[k].id, branch_a[k + 1].id)
+            emit(branch_a[-1].id, join_node.id, target_handle="top_left")
+        else:
+            emit(node.id, join_node.id, source_handle="bottom_left", target_handle="top_left")
+
+        # fork → branch_b (or directly to join for empty branch)
+        if branch_b:
+            emit(node.id, branch_b[0].id, source_handle="bottom_right")
+            for k in range(len(branch_b) - 1):
+                emit(branch_b[k].id, branch_b[k + 1].id)
+            emit(branch_b[-1].id, join_node.id, target_handle="top_right")
+        else:
+            emit(node.id, join_node.id, source_handle="bottom_right", target_handle="top_right")
+
+        # Mark fork through (join-1) so regular loop skips these outgoing edges
+        for k in range(i, join_idx):
+            skip_regular.add(k)
+
+    # Regular sequential pass (decisions get branching; fork/join segment skipped)
     for j, curr in enumerate(seq[:-1]):
+        if j in skip_regular:
+            continue
+
         next_node = seq[j + 1]
 
         if curr.notation == "decision":
             yes_g, no_g = _resolve_decision_guards(curr)
-            # Happy path: → next sequential node
-            emit(curr.id, next_node.id, yes_g)
-            # Alt path: → next merge or final (skips the happy-path subtree)
+            emit(curr.id, next_node.id, guard=yes_g)
             alt = _find_convergence(seq, j + 1)
             if alt.id != next_node.id:
-                # Add a synthetic alt-path edge with a unique id suffix
                 key = (curr.id, alt.id)
                 if key not in emitted:
                     flows.append(FlowLayout(
@@ -401,6 +459,11 @@ async def review_positions(
     else:
         layout = _rule_based_review(layout, max_iterations)
     return layout
+
+
+def fix_layout(layout: SwimlaneLayout, max_iterations: int = 3) -> SwimlaneLayout:
+    """Rule-based conflict resolution — no external deps. Always safe to call."""
+    return _rule_based_review(layout, max_iterations)
 
 
 def _rule_based_review(layout: SwimlaneLayout, max_iterations: int = 3) -> SwimlaneLayout:

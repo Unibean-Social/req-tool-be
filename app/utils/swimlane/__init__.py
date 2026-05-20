@@ -3,6 +3,7 @@ from app.utils.swimlane.layout import (
     LayoutConflictError,
     SwimlaneLayout,
     calculate_layout,
+    fix_layout,
     layout_to_swimlane_dict,
     review_positions,
 )

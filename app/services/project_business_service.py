@@ -21,6 +21,7 @@ from app.models.stakeholder import Stakeholder
 from app.utils.swimlane import (
     calculate_layout,
     detect_notation,
+    fix_layout,
     layout_to_swimlane_dict,
     normalize_decision_guards,
     normalize_node_label,
@@ -379,14 +380,18 @@ class ProjectBusinessService:
         # Stage 4: calculate positions
         layout = calculate_layout(actions_with_notation, lane_ids)
 
-        # Stage 5: review and auto-fix (temporarily skipped)
-        # layout = await review_positions(
-        #     layout,
-        #     access_key=settings.aws_access_key_id,
-        #     secret_key=settings.aws_secret_access_key,
-        #     region=settings.aws_region,
-        #     model_id=settings.bedrock_notation_model,
-        # )
+        # Stage 5a: rule-based conflict fix (always runs — no external deps)
+        layout = fix_layout(layout)
+
+        # Stage 5b: Bedrock AI position optimizer (only when AWS keys present)
+        if settings.aws_access_key_id and settings.aws_secret_access_key:
+            layout = await review_positions(
+                layout,
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
 
         # Stage 6: finalize
         swimlane = layout_to_swimlane_dict(layout, str(flow.id), flow.name)
