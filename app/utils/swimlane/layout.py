@@ -1,8 +1,9 @@
 """
-Swimlane layout calculator — Stage 4 + Stage 5 of the swimlane generation pipeline.
+Swimlane layout engine.
 
-Stage 4: calculate_layout  — assign x, y, width, height dynamically based on label + notation
-Stage 5: review_positions  — Bedrock AI review with rule-based fallback
+1: calculate_layout   — assign x, y, width, height per node
+2: review_positions   — Bedrock AI optimizer with rule-based fallback
+         layout_to_swimlane_dict — serialize SwimlaneLayout → JSONB dict
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ NotationType = Literal["action", "objectNode", "decision", "merge", "fork", "joi
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 # Base dimensions per notation (width, height)
+# decision/merge: fixed diamond — no text inside per UML standard; guards go on edges
 NODE_DIMS: dict[str, tuple[int, int]] = {
     "action":       (200, 60),
     "decision":     (80,  80),
@@ -31,7 +33,7 @@ NODE_DIMS: dict[str, tuple[int, int]] = {
     "final_node":   (30,  30),
 }
 
-# Vertical padding between node centers (added to half-heights)
+# Vertical padding between node centers
 PADDING: dict[str, int] = {
     "action":       80,
     "decision":     90,
@@ -43,14 +45,14 @@ PADDING: dict[str, int] = {
     "final_node":   60,
 }
 
-DECISION_NEXT_EXTRA = 20    # extra gap before a decision node
-MIN_LANE_WIDTH = 280        # minimum lane width in px
-LANE_SIDE_PADDING = 60      # padding left+right of widest node in lane
-MAX_NODE_WIDTH = 320        # cap node width — wider than this wraps to more lines
-CHAR_WIDTH = 8.5            # estimated px per character
-LINE_HEIGHT = 22            # px per text line
-LABEL_H_PADDING = 24        # total horizontal inner padding of text area
-LABEL_V_PADDING = 20        # total vertical inner padding of text area
+DECISION_NEXT_EXTRA = 20
+MIN_LANE_WIDTH = 280
+LANE_SIDE_PADDING = 60
+MAX_NODE_WIDTH = 320
+CHAR_WIDTH = 8.5
+LINE_HEIGHT = 22
+LABEL_H_PADDING = 24
+LABEL_V_PADDING = 20
 
 
 # ── Data classes ───────────────────────────────────────────────────────────────
@@ -60,8 +62,8 @@ class LaneSpec:
     id: str
     index: int
     width: float = 300.0
-    x_left: float = 0.0    # left edge of lane
-    x_center: float = 0.0  # center x (set after width calculation)
+    x_left: float = 0.0
+    x_center: float = 0.0
 
     @property
     def x_right(self) -> float:
@@ -109,10 +111,10 @@ class LayoutConflictError(Exception):
     pass
 
 
-# ── Label-aware node sizing ────────────────────────────────────────────────────
+# ── Node sizing ────────────────────────────────────────────────────────────────
 
 def estimate_node_size(notation: str, label: str | None) -> tuple[float, float]:
-    """Return (width, height) accounting for label length and notation shape."""
+    """Return (width, height) for a node. Only action/objectNode expand with label length."""
     base_w, base_h = NODE_DIMS.get(notation, NODE_DIMS["action"])
 
     # Nodes without label text (UML: guards on edges, not inside node)
@@ -132,13 +134,12 @@ def estimate_node_size(notation: str, label: str | None) -> tuple[float, float]:
     return round(w, 1), round(h, 1)
 
 
-# ── Lane width calculation ─────────────────────────────────────────────────────
+# ── Lane geometry ──────────────────────────────────────────────────────────────
 
 def _compute_lane_geometry(
     lanes: list[LaneSpec],
     nodes_by_lane: dict[str, list[NodeLayout]],
 ) -> None:
-    """Mutate lanes: set width and x_left/x_center based on widest node in each lane."""
     cumulative_x = 0.0
     for lane in lanes:
         lane_nodes = nodes_by_lane.get(lane.id, [])
@@ -149,7 +150,7 @@ def _compute_lane_geometry(
         cumulative_x += lane.width
 
 
-# ── Stage 4: calculate_layout ──────────────────────────────────────────────────
+# ── 1: calculate_layout ──────────────────────────────────────────────────
 
 def calculate_layout(
     actions: list[dict],  # [{id, lane_id, notation, label?, order}]
@@ -188,20 +189,16 @@ def calculate_layout(
 
     nodes: list[NodeLayout] = []
     for i, (action, node) in enumerate(zip(sorted_actions, pre_nodes)):
-        notation = node.notation
         lane = lane_map.get(node.lane_id, first_lane)
-
         if i > 0:
             prev = pre_nodes[i - 1]
-            extra = DECISION_NEXT_EXTRA if notation == "decision" else 0
+            extra = DECISION_NEXT_EXTRA if node.notation == "decision" else 0
             gap = prev.height / 2 + PADDING.get(prev.notation, 80) + node.height / 2 + extra
             global_y += gap
-
         node.x = lane.x_center
         node.y = round(global_y, 1)
         nodes.append(node)
 
-    # Final node
     last = nodes[-1] if nodes else initial
     final_y = last.y + last.height / 2 + PADDING.get(last.notation, 80) + 15
     w_fin, h_fin = NODE_DIMS["final_node"]
@@ -212,9 +209,7 @@ def calculate_layout(
         width=float(w_fin), height=float(h_fin),
     )
 
-    # Build flows
     flows = _build_flows(actions, nodes, initial, final, lanes)
-
     return SwimlaneLayout(lanes=lanes, initial_node=initial, final_node=final, nodes=nodes, flows=flows)
 
 
@@ -225,36 +220,31 @@ def _build_flows(
     final: NodeLayout,
     lanes: list[LaneSpec],
 ) -> list[FlowLayout]:
-    flows: list[FlowLayout] = []
-
     raw_flows: list[dict] = []
     for action in sorted(actions, key=lambda a: a.get("order", 0)):
-        for edge in action.get("edges", []):
-            raw_flows.append(edge)
+        raw_flows.extend(action.get("edges", []))
 
     if not raw_flows:
         seq: list[NodeLayout] = [initial] + nodes + [final]
-        for j in range(len(seq) - 1):
-            flows.append(FlowLayout(
-                id=f"f-{seq[j].id}-{seq[j+1].id}",
-                source=seq[j].id, target=seq[j+1].id,
-            ))
-        return flows
+        return [
+            FlowLayout(id=f"f-{seq[j].id}-{seq[j+1].id}", source=seq[j].id, target=seq[j+1].id)
+            for j in range(len(seq) - 1)
+        ]
 
-    for edge in raw_flows:
-        flows.append(FlowLayout(
+    return [
+        FlowLayout(
             id=edge["id"],
             source=edge["source"], target=edge["target"],
             source_handle=edge.get("source_handle"),
             target_handle=edge.get("target_handle"),
             guard=edge.get("guard"),
             flow_type=edge.get("flow_type", "control"),
-        ))
+        )
+        for edge in raw_flows
+    ]
 
-    return flows
 
-
-# ── Stage 5: review_positions ──────────────────────────────────────────────────
+# ── 2: review_positions ──────────────────────────────────────────────────
 
 _REVIEW_PROMPT = """\
 You are a UML swimlane diagram layout optimizer. A rule-based engine has produced an initial \
@@ -289,19 +279,16 @@ it cleaner, more readable, and visually balanced — not just fix violations.
 - Prefer consistent rhythm — if most gaps in a lane are ~120px, align outliers to that
 
 ### 3. Cross-lane alignment
-- Nodes that are connected by a horizontal edge (source_handle=left/right) should ideally \
-  share the same y value so the edge is level — adjust either node's y within its spacing constraints
+- Nodes connected by a horizontal edge (source_handle=left/right) should ideally share the same y \
+  so the edge is level — adjust either node's y within its spacing constraints
 - Fork output targets in different lanes should be at the same y as the fork node ± 40px
 
 ### 4. Node sizing
-- Decision nodes: if label is short (< 20 chars), keep base size; if long (> 40 chars), \
-  widen to accommodate without exceeding {max_node_width}px
 - action/objectNode with very long labels (> 60 chars): prefer wider over taller (max width first)
 
 ### 5. Lane x centering
-- Each node's x must be the lane's x_center (from lane geometry above)
-- Only deviate from x_center if the node is wider than the lane — then widen the lane's \
-  conceptual center, but do not violate lane_x_left+20 / lane_x_right-20 bounds
+- Each node's x must be the lane's x_center
+- Only deviate if the node is wider than the lane — do not violate lane_x_left+20 / lane_x_right-20
 
 ## Hard constraints (never violate)
 - x - width/2 >= lane_x_left + 20
@@ -353,7 +340,6 @@ def _rule_based_review(layout: SwimlaneLayout, max_iterations: int = 3) -> Swiml
 
 
 def _extract_json_from_response(text: str) -> dict:
-    """Extract a JSON object from Bedrock response — handles prose, code fences, and bare JSON."""
     stripped = text.strip()
     if not stripped:
         return {}
@@ -389,38 +375,19 @@ async def _bedrock_review(
     node_map = {n.id: n for n in all_nodes}
 
     lane_info = [
-        {
-            "id": ln.id,
-            "index": ln.index,
-            "x_left": ln.x_left,
-            "x_center": ln.x_center,
-            "x_right": ln.x_right,
-            "width": ln.width,
-        }
+        {"id": ln.id, "index": ln.index, "x_left": ln.x_left,
+         "x_center": ln.x_center, "x_right": ln.x_right, "width": ln.width}
         for ln in layout.lanes
     ]
     nodes_payload = [
-        {
-            "id": n.id,
-            "lane_id": n.lane_id,
-            "notation": n.notation,
-            "label": n.label or "",
-            "label_chars": len(n.label or ""),
-            "x": n.x,
-            "y": n.y,
-            "width": n.width,
-            "height": n.height,
-        }
+        {"id": n.id, "lane_id": n.lane_id, "notation": n.notation,
+         "label": n.label or "", "label_chars": len(n.label or ""),
+         "x": n.x, "y": n.y, "width": n.width, "height": n.height}
         for n in all_nodes
     ]
     flows_payload = [
-        {
-            "id": f.id,
-            "source": f.source,
-            "target": f.target,
-            "source_handle": f.source_handle,
-            "guard": f.guard,
-        }
+        {"id": f.id, "source": f.source, "target": f.target,
+         "source_handle": f.source_handle, "guard": f.guard}
         for f in layout.flows
     ]
 
@@ -439,24 +406,18 @@ async def _bedrock_review(
         _invoke_bedrock_review, prompt, access_key, secret_key, region, model_id
     )
 
-    result: dict = _extract_json_from_response(raw)
-    node_adjustments: list[dict] = result.get("nodes", [])
-    flow_adjustments: list[dict] = result.get("flows", [])
-
-    for adj in node_adjustments:
+    result = _extract_json_from_response(raw)
+    for adj in result.get("nodes", []):
         node = node_map.get(adj.get("id", ""))
         if node:
             node.y = float(adj.get("y", node.y))
             node.width = float(adj.get("width", node.width))
             node.height = float(adj.get("height", node.height))
-            # x: only accept if it stays within the node's lane
             new_x = float(adj.get("x", node.x))
             lane = next((ln for ln in layout.lanes if ln.id == node.lane_id), None)
             if lane and (lane.x_left + node.width / 2 + 20 <= new_x <= lane.x_right - node.width / 2 - 20):
                 node.x = new_x
-            # else: ignore — x stays at lane center
 
-    # Safety net: single rule-based pass after LLM — silent (no raise on remaining conflicts)
     conflicts = _find_conflicts(layout)
     if conflicts:
         layout = _auto_fix(layout, conflicts)
@@ -486,36 +447,28 @@ def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
     all_nodes = layout.nodes + [layout.initial_node, layout.final_node]
     lane_map = {ln.id: ln for ln in layout.lanes}
 
-    # 1. Vertical overlap in same lane
     by_lane: dict[str, list[NodeLayout]] = {}
     for n in all_nodes:
         by_lane.setdefault(n.lane_id, []).append(n)
 
-    for lane_id, lane_nodes in by_lane.items():
-        for a, b in zip(
-            sorted(lane_nodes, key=lambda n: n.y),
-            sorted(lane_nodes, key=lambda n: n.y)[1:],
-        ):
+    for lane_nodes in by_lane.values():
+        sorted_nodes = sorted(lane_nodes, key=lambda n: n.y)
+        for a, b in zip(sorted_nodes, sorted_nodes[1:]):
             min_gap = a.height / 2 + 80 + b.height / 2
             if b.y - a.y < min_gap:
                 conflicts.append({
-                    "type": "overlap",
-                    "node_id": b.id,
+                    "type": "overlap", "node_id": b.id,
                     "delta": min_gap - (b.y - a.y),
                     "desc": f"{a.id}↔{b.id} gap {b.y-a.y:.0f}px < {min_gap:.0f}px",
                 })
 
-    # 2. Lane boundary violation
     for n in all_nodes:
         lane = lane_map.get(n.lane_id)
-        if lane:
-            if n.x - n.width / 2 < lane.x_left + 20 or n.x + n.width / 2 > lane.x_right - 20:
-                conflicts.append({
-                    "type": "out_of_lane",
-                    "node_id": n.id,
-                    "delta": 0,
-                    "desc": f"node {n.id} (w={n.width}) exceeds lane [{lane.x_left},{lane.x_right}]",
-                })
+        if lane and (n.x - n.width / 2 < lane.x_left + 20 or n.x + n.width / 2 > lane.x_right - 20):
+            conflicts.append({
+                "type": "out_of_lane", "node_id": n.id, "delta": 0,
+                "desc": f"node {n.id} (w={n.width}) exceeds lane [{lane.x_left},{lane.x_right}]",
+            })
 
     return conflicts
 
@@ -540,22 +493,19 @@ def _auto_fix(layout: SwimlaneLayout, conflicts: list[dict]) -> SwimlaneLayout:
             node = node_map.get(c["node_id"])
             lane = next((ln for ln in layout.lanes if ln.id == (node.lane_id if node else "")), None)
             if node and lane:
-                # Widen lane to fit node
                 needed = node.width + LANE_SIDE_PADDING * 2
                 if needed > lane.width:
                     delta = needed - lane.width
                     lane.width += delta
                     lane.x_center = lane.x_left + lane.width / 2
-                    # Shift all lanes to the right of this one
                     for ln in layout.lanes:
                         if ln.index > lane.index:
                             ln.x_left += delta
                             ln.x_center = ln.x_left + ln.width / 2
-                    # Re-center all nodes in affected lanes
                     for n in layout.nodes + [layout.initial_node, layout.final_node]:
-                        affected_lane = next((ln for ln in layout.lanes if ln.id == n.lane_id), None)
-                        if affected_lane:
-                            n.x = affected_lane.x_center
+                        affected = next((ln for ln in layout.lanes if ln.id == n.lane_id), None)
+                        if affected:
+                            n.x = affected.x_center
 
     return layout
 

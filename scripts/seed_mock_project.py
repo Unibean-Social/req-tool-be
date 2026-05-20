@@ -39,7 +39,7 @@ from app.models.requirements import (
     Epic, Feature, Story, Task, AcceptanceCriteria,
     Priority, ItemStatus,
 )
-from app.utils.swimlane_layout import calculate_layout, layout_to_swimlane_dict, review_positions
+from app.utils.swimlane import calculate_layout, layout_to_swimlane_dict, review_positions
 from app.config import settings
 
 
