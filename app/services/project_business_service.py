@@ -22,6 +22,7 @@ from app.utils.swimlane import (
     calculate_layout,
     detect_notation,
     layout_to_swimlane_dict,
+    normalize_decision_guards,
     normalize_node_label,
     review_positions,
 )
@@ -270,7 +271,8 @@ class ProjectBusinessService:
                 "y": item.y,
                 "width": item.width,
                 "height": item.height,
-                "label": item.label,
+                # FE may omit label on layout-only updates; preserve DB description as fallback
+                "label": item.label if item.label is not None else db_action.description,
             })
 
         data = payload.model_dump(mode="json")
@@ -344,22 +346,35 @@ class ProjectBusinessService:
             )
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
             actor_name = action.actor.name if action.actor else None
-            label = await normalize_node_label(
-                action.description or "",
-                actor_name=actor_name,
-                notation=notation,
+            bedrock_kwargs = dict(
                 access_key=settings.aws_access_key_id,
                 secret_key=settings.aws_secret_access_key,
                 region=settings.aws_region,
                 model_id=settings.bedrock_notation_model,
             )
-            actions_with_notation.append({
+            action_entry: dict = {
                 "id": str(action.id),
                 "lane_id": lane_id,
                 "notation": notation,
-                "label": label,
                 "order": action.order,
-            })
+            }
+            if notation == "decision":
+                yes_g, no_g = await normalize_decision_guards(
+                    action.description or "",
+                    actor_name=actor_name,
+                    **bedrock_kwargs,
+                )
+                action_entry["yes_guard"] = yes_g
+                action_entry["no_guard"] = no_g
+                action_entry["label"] = None
+            else:
+                action_entry["label"] = await normalize_node_label(
+                    action.description or "",
+                    actor_name=actor_name,
+                    notation=notation,
+                    **bedrock_kwargs,
+                )
+            actions_with_notation.append(action_entry)
 
         # Stage 4: calculate positions
         layout = calculate_layout(actions_with_notation, lane_ids)

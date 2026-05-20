@@ -76,6 +76,8 @@ class NodeLayout:
     lane_id: str
     notation: str
     label: str | None = None
+    yes_guard: str | None = None  # decision: "[Condition met]"
+    no_guard: str | None = None   # decision: "[Condition not met]"
     x: float = 0.0
     y: float = 0.0
     width: float = 0.0
@@ -169,7 +171,10 @@ def calculate_layout(
         lid = action["lane_id"]
         pre_nodes.append(NodeLayout(
             id=str(action["id"]), lane_id=lid, notation=notation,
-            label=action.get("label"), width=w, height=h, index=i,
+            label=action.get("label"),
+            yes_guard=action.get("yes_guard"),
+            no_guard=action.get("no_guard"),
+            width=w, height=h, index=i,
         ))
 
     # Pass 2: compute lane widths from node sizes
@@ -213,6 +218,50 @@ def calculate_layout(
     return SwimlaneLayout(lanes=lanes, initial_node=initial, final_node=final, nodes=nodes, flows=flows)
 
 
+def _resolve_decision_guards(node: NodeLayout) -> tuple[str, str]:
+    """Return (yes_guard, no_guard) for a decision node, deriving from label if not pre-computed."""
+    if node.yes_guard and node.no_guard:
+        return node.yes_guard, node.no_guard
+
+    label = (node.label or "").strip().strip("[]")
+    if not label:
+        return "[Yes]", "[No]"
+
+    for pattern, pos, neg in _GUARD_ANTONYMS:
+        if re.match(pattern, label, re.IGNORECASE):
+            matched = re.match(pattern, label, re.IGNORECASE).group(0)
+            rest = label[len(matched):]
+            return f"[{pos}{rest}]", f"[{neg}{rest}]"
+
+    first = label[0].lower() + label[1:] if label else label
+    if re.search(r"[àáâãèéêìíòóôõùúýăđơưạặấầẩẫắằẳẵặ]", label, re.IGNORECASE):
+        return f"[{label}]", f"[Không {first}]"
+    return f"[{label}]", f"[Not {first}]"
+
+
+def _find_convergence(seq: list[NodeLayout], from_index: int) -> NodeLayout:
+    """Find the nearest merge or final node at or after seq[from_index]."""
+    for node in seq[from_index:]:
+        if node.notation in ("merge", "final_node"):
+            return node
+    return seq[-1]
+
+
+# Antonym table mirrored from label.py so layout has no external import
+_GUARD_ANTONYMS = [
+    (r"^Đủ\b",           "Đủ",               "Không đủ"),
+    (r"^Hợp lệ$",        "Hợp lệ",           "Không hợp lệ"),
+    (r"^Thành công$",    "Thành công",        "Thất bại"),
+    (r"^Được phê duyệt", "Được phê duyệt",   "Bị từ chối"),
+    (r"^Tồn tại$",       "Tồn tại",           "Không tồn tại"),
+    (r"^Có\b",           "Có",               "Không"),
+    (r"^Yes\b",          "Yes",              "No"),
+    (r"^Valid\b",        "Valid",            "Invalid"),
+    (r"^Approved\b",     "Approved",         "Rejected"),
+    (r"^Passed\b",       "Passed",           "Failed"),
+]
+
+
 def _build_flows(
     actions: list[dict],
     nodes: list[NodeLayout],
@@ -224,30 +273,53 @@ def _build_flows(
     for action in sorted(actions, key=lambda a: a.get("order", 0)):
         raw_flows.extend(action.get("edges", []))
 
-    if not raw_flows:
-        seq: list[NodeLayout] = [initial] + nodes + [final]
+    if raw_flows:
         return [
             FlowLayout(
-                id=f"f-{seq[j].id}-{seq[j+1].id}",
-                source=seq[j].id,
-                target=seq[j+1].id,
-                # decision label has no place inside the diamond → surface it as edge guard
-                guard=seq[j].label if seq[j].notation == "decision" else None,
+                id=edge["id"],
+                source=edge["source"], target=edge["target"],
+                source_handle=edge.get("source_handle"),
+                target_handle=edge.get("target_handle"),
+                guard=edge.get("guard"),
+                flow_type=edge.get("flow_type", "control"),
             )
-            for j in range(len(seq) - 1)
+            for edge in raw_flows
         ]
 
-    return [
-        FlowLayout(
-            id=edge["id"],
-            source=edge["source"], target=edge["target"],
-            source_handle=edge.get("source_handle"),
-            target_handle=edge.get("target_handle"),
-            guard=edge.get("guard"),
-            flow_type=edge.get("flow_type", "control"),
-        )
-        for edge in raw_flows
-    ]
+    # Auto-generate: linear sequence with proper decision branching
+    seq: list[NodeLayout] = [initial] + nodes + [final]
+    flows: list[FlowLayout] = []
+    emitted: set[tuple[str, str]] = set()
+
+    def emit(src: str, tgt: str, guard: str | None = None) -> None:
+        key = (src, tgt)
+        if key not in emitted:
+            flows.append(FlowLayout(id=f"f-{src}-{tgt}", source=src, target=tgt, guard=guard))
+            emitted.add(key)
+
+    for j, curr in enumerate(seq[:-1]):
+        next_node = seq[j + 1]
+
+        if curr.notation == "decision":
+            yes_g, no_g = _resolve_decision_guards(curr)
+            # Happy path: → next sequential node
+            emit(curr.id, next_node.id, yes_g)
+            # Alt path: → next merge or final (skips the happy-path subtree)
+            alt = _find_convergence(seq, j + 1)
+            if alt.id != next_node.id:
+                # Add a synthetic alt-path edge with a unique id suffix
+                key = (curr.id, alt.id)
+                if key not in emitted:
+                    flows.append(FlowLayout(
+                        id=f"f-{curr.id}-{alt.id}-no",
+                        source=curr.id, target=alt.id,
+                        guard=no_g,
+                    ))
+                    emitted.add(key)
+        else:
+            emit(curr.id, next_node.id)
+
+    return flows
 
 
 # ── 2: review_positions ──────────────────────────────────────────────────

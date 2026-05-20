@@ -1,4 +1,4 @@
-from app.utils.swimlane.label import normalize_node_label
+from app.utils.swimlane.label import normalize_decision_guards, normalize_node_label
 from app.utils.swimlane.layout import (
     LayoutConflictError,
     SwimlaneLayout,
@@ -13,6 +13,7 @@ __all__ = [
     "detect_notation",
     "detect_notation_rules",
     "normalize_node_label",
+    "normalize_decision_guards",
     "SwimlaneLayout",
     "LayoutConflictError",
     "calculate_layout",
