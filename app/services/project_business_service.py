@@ -18,10 +18,13 @@ from app.models.project_business import (
     ProjectRule,
 )
 from app.models.stakeholder import Stakeholder
-from app.utils.notation_detector import detect_notation
-from app.utils.swimlane_layout import (
+from app.utils.swimlane import (
     calculate_layout,
+    detect_notation,
+    fix_layout,
     layout_to_swimlane_dict,
+    normalize_decision_guards,
+    normalize_node_label,
     review_positions,
 )
 
@@ -156,6 +159,50 @@ class ProjectBusinessService:
         )
         return [ProjectFlowResponse.model_validate(f) for f in result.scalars().all()]
 
+    async def list_flow_templates(self, project_id: uuid.UUID, flow_id: uuid.UUID) -> list:
+        from app.schemas.project_business import (
+            FlowTemplateActorResponse,
+            FlowTemplateResponse,
+            FlowTemplateStepResponse,
+        )
+
+        result = await self.db.execute(
+            select(ProjectFlow)
+            .where(ProjectFlow.project_id == project_id, ProjectFlow.id == flow_id)
+            .options(
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor)
+            )
+            .order_by(ProjectFlow.code)
+        )
+        flows = result.scalars().all()
+
+        templates = []
+        for flow in flows:
+            seen_actor_ids: dict[uuid.UUID, str] = {}
+            steps = []
+            for action in sorted(flow.actions, key=lambda a: a.order):
+                actor_name: str | None = None
+                if action.actor_id and action.actor:
+                    actor_name = action.actor.name
+                    seen_actor_ids[action.actor_id] = action.actor.name
+                steps.append(FlowTemplateStepResponse(
+                    step=action.order + 1,
+                    description=action.description,
+                    actor=actor_name,
+                ))
+            actors = [
+                FlowTemplateActorResponse(id=aid, name=name)
+                for aid, name in seen_actor_ids.items()
+            ]
+            templates.append(FlowTemplateResponse(
+                flow_id=flow.id,
+                code=flow.code,
+                name=flow.name,
+                actors=actors,
+                steps=steps,
+            ))
+        return templates
+
     async def update_flow(self, project_id: uuid.UUID, flow_id: uuid.UUID, body: ProjectFlowUpdate) -> ProjectFlowResponse:
         result = await self.db.execute(
             select(ProjectFlow)
@@ -216,28 +263,33 @@ class ProjectBusinessService:
         enriched_actions = []
         for item in payload.actions:
             db_action = action_map[item.id]
-            notation = await detect_notation(
-                db_action.description or "",
-                access_key=settings.aws_access_key_id,
-                secret_key=settings.aws_secret_access_key,
-                region=settings.aws_region,
-                model_id=settings.bedrock_notation_model,
-            )
             enriched_actions.append({
                 "id": str(item.id),
                 "lane_id": item.lane_id,
-                "notation": notation,
+                "notation": item.notation,
                 "index": item.index,
                 "x": item.x,
                 "y": item.y,
                 "width": item.width,
                 "height": item.height,
-                "label": item.label if item.label is not None else (db_action.description or ""),
+                # FE may omit label on layout-only updates; preserve DB description as fallback
+                "label": item.label if item.label is not None else db_action.description,
             })
 
         data = payload.model_dump(mode="json")
         data["id"] = str(flow_id)
         data["actions"] = enriched_actions
+
+        existing_lanes: dict[str, dict] = {}
+        if flow.swimlane and isinstance(flow.swimlane, dict):
+            for l in flow.swimlane.get("lanes", []):
+                existing_lanes[l["id"]] = l
+        for lane in data["lanes"]:
+            prev = existing_lanes.get(lane["id"], {})
+            if lane.get("width") is None and prev.get("width") is not None:
+                lane["width"] = prev["width"]
+            if lane.get("x_left") is None and prev.get("x_left") is not None:
+                lane["x_left"] = prev["x_left"]
 
         flow.swimlane = data
         await self.db.flush()
@@ -294,25 +346,52 @@ class ProjectBusinessService:
                 model_id=settings.bedrock_notation_model,
             )
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
-            actions_with_notation.append({
+            actor_name = action.actor.name if action.actor else None
+            bedrock_kwargs = dict(
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
+            action_entry: dict = {
                 "id": str(action.id),
                 "lane_id": lane_id,
                 "notation": notation,
-                "label": action.description or "",
                 "order": action.order,
-            })
+            }
+            if notation == "decision":
+                yes_g, no_g = await normalize_decision_guards(
+                    action.description or "",
+                    actor_name=actor_name,
+                    **bedrock_kwargs,
+                )
+                action_entry["yes_guard"] = yes_g
+                action_entry["no_guard"] = no_g
+                action_entry["label"] = None
+            else:
+                action_entry["label"] = await normalize_node_label(
+                    action.description or "",
+                    actor_name=actor_name,
+                    notation=notation,
+                    **bedrock_kwargs,
+                )
+            actions_with_notation.append(action_entry)
 
         # Stage 4: calculate positions
         layout = calculate_layout(actions_with_notation, lane_ids)
 
-        # Stage 5: review and auto-fix
-        layout = await review_positions(
-            layout,
-            access_key=settings.aws_access_key_id,
-            secret_key=settings.aws_secret_access_key,
-            region=settings.aws_region,
-            model_id=settings.bedrock_notation_model,
-        )
+        # Stage 5a: rule-based conflict fix (always runs — no external deps)
+        layout = fix_layout(layout)
+
+        # Stage 5b: Bedrock AI position optimizer (only when AWS keys present)
+        if settings.aws_access_key_id and settings.aws_secret_access_key:
+            layout = await review_positions(
+                layout,
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
 
         # Stage 6: finalize
         swimlane = layout_to_swimlane_dict(layout, str(flow.id), flow.name)

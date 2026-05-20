@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from app.models.project_business import ConstraintSeverity, ConstraintType, GoalPriority, RuleType
 
@@ -198,6 +198,23 @@ class ProjectFlowActionResponse(BaseModel):
 
 # ── Swimlane schemas ───────────────────────────────────────────────────────────
 
+_HandleEnum = Literal[
+    "top", "bottom", "left", "right",
+    "bottom_left", "bottom_right",   # fork source handles
+    "top_left", "top_right",         # join target handles
+]
+
+
+class SwimlaneWaypoint(BaseModel):
+    x: float
+    y: float
+
+
+class SwimlaneEdgeOffset(BaseModel):
+    x: float
+    y: float
+
+
 class SwimlaneLane(BaseModel):
     id: str
     title: str
@@ -225,15 +242,39 @@ class SwimlaneAction(BaseModel):
 
 
 class SwimlaneFlow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     source: str
     target: str
-    source_handle: Literal["top", "bottom", "left", "right"] | None = None
-    target_handle: Literal["top", "bottom", "left", "right"] | None = None
+    source_handle: _HandleEnum | None = None
+    target_handle: _HandleEnum | None = None
     label: str | None = None
     guard: str | None = None
     flow_type: Literal["control", "object"] = "control"
-    label_offset: dict | None = None
+    label_offset: SwimlaneEdgeOffset | None = None
+    waypoints: list[SwimlaneWaypoint] | None = None
+
+    @field_validator("waypoints", mode="before")
+    @classmethod
+    def _normalize_waypoints(cls, v):
+        if v is not None and len(v) == 0:
+            return None
+        return v
+
+    @field_validator("label_offset", mode="before")
+    @classmethod
+    def _normalize_label_offset(cls, v):
+        if v is not None and v.get("x", 1) == 0 and v.get("y", 1) == 0:
+            return None
+        return v
+
+    @field_validator("waypoints")
+    @classmethod
+    def _max_waypoints(cls, v):
+        if v is not None and len(v) > 16:
+            raise ValueError("waypoints may not exceed 16 points")
+        return v
 
 
 class SwimlaneRequest(BaseModel):
@@ -308,3 +349,24 @@ class ProjectFlowResponse(BaseModel):
 
 class ProjectFlowDetailResponse(ProjectFlowResponse):
     swimlane: dict | None = None
+
+
+# ── Flow Templates ─────────────────────────────────────────────────────────────
+
+class FlowTemplateActorResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class FlowTemplateStepResponse(BaseModel):
+    step: int
+    description: str
+    actor: str | None
+
+
+class FlowTemplateResponse(BaseModel):
+    flow_id: uuid.UUID
+    code: str
+    name: str
+    actors: list[FlowTemplateActorResponse]
+    steps: list[FlowTemplateStepResponse]

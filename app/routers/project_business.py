@@ -24,6 +24,7 @@ from app.models.project_business import (
 from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
+    FlowTemplateResponse,
     ProjectBusinessRequirementCreate,
     ProjectBusinessRequirementResponse,
     ProjectBusinessRequirementUpdate,
@@ -142,6 +143,17 @@ async def delete_flow(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_flow(project_id, flow_id)
+
+
+@router.get("/flows/{flow_id}/templates", response_model=ApiResponse[list[FlowTemplateResponse]], tags=["Project Flows"])
+async def list_flow_templates(
+    project_id: uuid.UUID,
+    flow_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_flow_templates(project_id, flow_id))
 
 
 @router.get("/flows/{flow_id}", response_model=ApiResponse[ProjectFlowDetailResponse], tags=["Project Flows"])
