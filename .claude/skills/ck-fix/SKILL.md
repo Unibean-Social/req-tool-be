@@ -1,13 +1,14 @@
 ---
 name: ck:fix
-description: Fix a bug using Scout → Diagnose → Fix → Review → Finalize. Use when the user pastes an error message, stack trace, or test failure, or says "fix this bug", "something's broken", "tests are failing", "I'm getting an error". Modes: --quick (trivial errors — lint, type, build — skip scout and review), --hard (mandatory review, no auto-approve).
+description: Fix a bug using Scout → Diagnose → Fix → Review → Finalize. Use when the user pastes an error message, stack trace, or test failure, or says "fix this bug", "something's broken", "tests are failing", "I'm getting an error". Modes: --fast (trivial errors — lint, type, build — skip scout and review), --hard (mandatory review, no auto-approve).
 user-invocable: true
 ---
 
 # ck:fix — Structured Bug-Fix Pipeline
 
 Modes (default = Standard: auto-approve if score ≥ 9.5 with 0 CRITICAL):
-- **`--quick`** — trivial issues (lint, type errors, build errors); skip scout, review, docs
+
+- **`--fast`** — trivial issues (lint, type errors, build errors); skip scout, review, docs
 - **`--hard`** — mandatory review, no auto-approve
 
 ---
@@ -24,13 +25,14 @@ If no error message, stack trace, or concrete description provided:
 #   Mode:       {Standard | Quick | Hard}
 ```
 
-If `--quick` or clearly a build/compiler/lint error: skip Step 1 → go directly to Step 2.
+If `--fast` or clearly a build/compiler/lint error: skip Step 1 → go directly to Step 2.
 
 ---
 
 ### Step 1 — Scout
 
 Spawn **`scout`** with the bug description:
+
 - Greps for error patterns in logs and stack traces
 - Reads affected source files and maps dependencies
 - Checks recent git changes for related commits
@@ -47,6 +49,7 @@ Spawn **`scout`** with the bug description:
 ### Step 2 — Diagnose
 
 Spawn **`debugger`** with the scout evidence report:
+
 - Forms 2–3 hypotheses from the evidence
 - Confirms or rejects each against the codebase
 - Applies the minimal fix at the confirmed root cause
@@ -64,7 +67,7 @@ Spawn **`debugger`** with the scout evidence report:
 
 ### Step 3 — Review
 
-**`--quick`**: skip → Step 4.
+**`--fast`**: skip → Step 4.
 
 Spawn **`code-reviewer`**: correctness, security, regressions, code quality.
 
@@ -75,8 +78,8 @@ Spawn **`code-reviewer`**: correctness, security, regressions, code quality.
 
 ### Step 4 — Finalize (MANDATORY)
 
-**`project-manager`** (skip `--quick`): sync plan progress if bug was tracked.
-**`docs-manager`** (skip `--quick`): update docs if fix changes a public contract.
+**`project-manager`** (skip `--fast`): sync plan progress if bug was tracked.
+**`docs-manager`** (skip `--fast`): update docs if fix changes a public contract.
 **`git-manager`** (always): conventional commit + ask to push.
 
 ```
@@ -88,11 +91,11 @@ Spawn **`code-reviewer`**: correctness, security, regressions, code quality.
 
 ## Agents
 
-| Agent             | Step | Modes |
-|-------------------|------|-------|
-| `scout`           | 1    | Standard, `--hard` (skip if `--quick`) |
-| `debugger`        | 2    | All |
-| `code-reviewer`   | 3    | Standard, `--hard` (skip for `--quick`) |
-| `project-manager` | 4    | Standard, `--hard` (skip for `--quick`) |
-| `docs-manager`    | 4    | Standard, `--hard` (skip for `--quick`) |
-| `git-manager`     | 4    | Always (mandatory) |
+| Agent             | Step | Modes                                  |
+| ----------------- | ---- | -------------------------------------- |
+| `scout`           | 1    | Standard, `--hard` (skip if `--fast`)  |
+| `debugger`        | 2    | All                                    |
+| `code-reviewer`   | 3    | Standard, `--hard` (skip for `--fast`) |
+| `project-manager` | 4    | Standard, `--hard` (skip for `--fast`) |
+| `docs-manager`    | 4    | Standard, `--hard` (skip for `--fast`) |
+| `git-manager`     | 4    | Always (mandatory)                     |
