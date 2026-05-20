@@ -227,7 +227,13 @@ def _build_flows(
     if not raw_flows:
         seq: list[NodeLayout] = [initial] + nodes + [final]
         return [
-            FlowLayout(id=f"f-{seq[j].id}-{seq[j+1].id}", source=seq[j].id, target=seq[j+1].id)
+            FlowLayout(
+                id=f"f-{seq[j].id}-{seq[j+1].id}",
+                source=seq[j].id,
+                target=seq[j+1].id,
+                # decision label has no place inside the diamond → surface it as edge guard
+                guard=seq[j].label if seq[j].notation == "decision" else None,
+            )
             for j in range(len(seq) - 1)
         ]
 

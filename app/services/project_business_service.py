@@ -261,23 +261,16 @@ class ProjectBusinessService:
         enriched_actions = []
         for item in payload.actions:
             db_action = action_map[item.id]
-            notation = await detect_notation(
-                db_action.description or "",
-                access_key=settings.aws_access_key_id,
-                secret_key=settings.aws_secret_access_key,
-                region=settings.aws_region,
-                model_id=settings.bedrock_notation_model,
-            )
             enriched_actions.append({
                 "id": str(item.id),
                 "lane_id": item.lane_id,
-                "notation": notation,
+                "notation": item.notation,
                 "index": item.index,
                 "x": item.x,
                 "y": item.y,
                 "width": item.width,
                 "height": item.height,
-                "label": item.label if item.label is not None else (db_action.description or ""),
+                "label": item.label,
             })
 
         data = payload.model_dump(mode="json")

@@ -1,8 +1,10 @@
 """
-UML Activity Diagram node label normalizer.
+UML Activity Diagram text normalizer.
 
-normalize_node_label : shorten a full action description to a concise in-node label.
-                       Returns None for notation types that carry no text (decision/merge/fork/join).
+normalize_node_label : returns display text appropriate for the notation type:
+  - action / objectNode → concise verb phrase for INSIDE the node
+  - decision            → short condition phrase for the OUTGOING EDGE guard
+  - fork/join/merge/initial/final → None (no text needed)
 """
 from __future__ import annotations
 
@@ -34,25 +36,33 @@ def normalize_label_rules(text: str, actor_name: str | None) -> str:
 # ── Bedrock ────────────────────────────────────────────────────────────────────
 
 _PROMPT = """\
-You are a UML Activity Diagram label formatter. Rewrite the description as a concise label \
-for inside a UML activity node.
+You are a UML Activity Diagram text formatter. Given an action description and its UML notation \
+type, produce the appropriate display text.
 
-Rules:
-- Remove the actor name if it appears at the start (actor is already shown in the swimlane header)
+Notation-specific output:
+- action / objectNode  → label INSIDE the node: 2–5 word verb phrase, imperative form
+  e.g. "Chọn khóa học", "Gửi đơn đăng ký", "Submit order form"
+- decision             → guard text ON the outgoing EDGE (diamond is empty): short condition phrase
+  e.g. "Kiểm tra ngân sách", "Xác thực thông tin", "Validate credentials"
+
+Common rules:
+- Remove the actor name if it appears at the start (actor is shown in swimlane header)
 - 2–5 words maximum
-- Verb phrase — imperative or infinitive form, e.g. "Chọn khóa học", "Gửi đơn đăng ký", "Submit order"
 - Same language as input (Vietnamese or English)
-- No subject pronoun, no trailing punctuation, no filler words (muốn, cần phải, đang, sẽ, ...)
+- No subject pronoun, no trailing punctuation
+- No filler words (muốn, cần phải, đang, sẽ, thực hiện việc, ...)
 
+Notation: "{notation}"
 Actor: "{actor}"
 Description: "{text}"
 
-Reply with ONLY the short label text, nothing else.\
+Reply with ONLY the short text, nothing else.\
 """
 
 
 def _invoke_bedrock(
-    text: str, actor_name: str, access_key: str, secret_key: str, region: str, model_id: str
+    text: str, actor_name: str, notation: str,
+    access_key: str, secret_key: str, region: str, model_id: str,
 ) -> str:
     import boto3
 
@@ -60,9 +70,10 @@ def _invoke_bedrock(
         "bedrock-runtime", region_name=region,
         aws_access_key_id=access_key, aws_secret_access_key=secret_key,
     )
+    prompt = _PROMPT.format(notation=notation, actor=actor_name, text=text)
     response = client.converse(
         modelId=model_id,
-        messages=[{"role": "user", "content": [{"text": _PROMPT.format(actor=actor_name, text=text)}]}],
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
         inferenceConfig={"maxTokens": 30, "temperature": 0.0},
     )
     raw = response["output"]["message"]["content"][0]["text"].strip().rstrip(".!?")
@@ -80,8 +91,14 @@ async def normalize_node_label(
     region: str = "us-east-1",
     model_id: str = "google.gemma-3-4b-it",
 ) -> str | None:
-    """Concise label for inside a UML node; None for label-less notations (decision/merge/fork/join)."""
-    if notation not in ("action", "objectNode"):
+    """
+    Returns normalized text for the notation, or None if the notation carries no text.
+
+    action/objectNode → in-node label
+    decision          → edge guard text (layout engine puts it on outgoing edge)
+    fork/join/merge/initial_node/final_node → None
+    """
+    if notation in ("fork", "join", "merge", "initial_node", "final_node"):
         return None
     if not text:
         return None
@@ -92,7 +109,8 @@ async def normalize_node_label(
 
     try:
         return await asyncio.to_thread(
-            _invoke_bedrock, text, actor_name or "", access_key, secret_key, region, model_id
+            _invoke_bedrock, text, actor_name or "", notation,
+            access_key, secret_key, region, model_id,
         )
     except Exception as exc:
         logger.warning("Bedrock label normalization failed, using rule-based: %s", exc)
