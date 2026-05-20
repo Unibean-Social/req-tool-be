@@ -224,11 +224,6 @@ class SwimlaneAction(BaseModel):
     height: float | None = None
 
 
-class SwimlaneWaypoint(BaseModel):
-    x: float
-    y: float
-
-
 class SwimlaneFlow(BaseModel):
     id: str
     source: str
@@ -236,10 +231,9 @@ class SwimlaneFlow(BaseModel):
     source_handle: Literal["top", "bottom", "left", "right"] | None = None
     target_handle: Literal["top", "bottom", "left", "right"] | None = None
     label: str | None = None
-    guard: str | None = None  # condition text on decision branches
+    guard: str | None = None
     flow_type: Literal["control", "object"] = "control"
     label_offset: dict | None = None
-    waypoints: list[SwimlaneWaypoint] | None = None  # intermediate routing points
 
 
 class SwimlaneRequest(BaseModel):

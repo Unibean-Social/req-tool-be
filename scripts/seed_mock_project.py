@@ -439,51 +439,28 @@ async def seed():
         for lane in flow1.swimlane["lanes"]:
             lane["title"] = f1_lane_titles.get(lane["id"], lane["id"])
 
-        # Inject topology: guards + source_handles + computed waypoints
-        npos1 = {n["id"]: n for n in flow1.swimlane["actions"]}
-        npos1["start"] = flow1.swimlane["initial_node"]
-        npos1["end"]   = flow1.swimlane["activity_final_node"]
-        r1_right = max(ln["x_left"] + ln["width"] for ln in flow1.swimlane["lanes"])
-        def c1(i): return r1_right + 180 + i * 70  # corridor x for flow1 reject i
-
-        # fork routing helpers
-        a2 = npos1[str(a[2].id)]  # fork node
-        a3 = npos1[str(a[3].id)]  # budget decision
-        a4 = npos1[str(a[4].id)]  # join
-        a8 = npos1[str(a[8].id)]  # merge
-        a6 = npos1[str(a[6].id)]  # L2 decision
-        end1 = npos1["end"]
-
+        # Inject topology: guards + source_handles (no waypoints — FE handles routing)
         flow1.swimlane["flows"] = [
             {"id": "f-start-a0", "source": "start",       "target": str(a[0].id), "flow_type": "control"},
             {"id": "f-a0-a1",    "source": str(a[0].id),  "target": str(a[1].id), "flow_type": "control"},
-            # Decision a[1]: yes=bottom, no=right → corridor 0
             {"id": "f-a1-a2",  "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control",
              "guard": "Có trong danh sách", "source_handle": "bottom"},
             {"id": "f-a1-end", "source": str(a[1].id), "target": "end", "flow_type": "control",
-             "guard": "Không có → từ chối", "source_handle": "right", "target_handle": "right",
-             "waypoints": [{"x": c1(0), "y": npos1[str(a[1].id)]["y"]}, {"x": c1(0), "y": end1["y"]}]},
-            # Fork a[2]: bottom → acc lane (budget check), right → pm lane (join)
+             "guard": "Không có → từ chối", "source_handle": "right"},
             {"id": "f-a2-a3",  "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control",
-             "source_handle": "bottom", "target_handle": "top",
-             "waypoints": [{"x": a2["x"], "y": a2["y"] + 30}, {"x": a3["x"], "y": a2["y"] + 30}]},
+             "source_handle": "bottom"},
             {"id": "f-a2-a4",  "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control",
-             "source_handle": "right", "target_handle": "top",
-             "waypoints": [{"x": a2["x"] + 100, "y": a2["y"]}, {"x": a4["x"], "y": a2["y"]}]},
-            # Decision a[3]: yes=bottom → join, no=right → corridor 1
+             "source_handle": "right"},
             {"id": "f-a3-a4",  "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control",
              "guard": "Đủ ngân sách", "source_handle": "bottom"},
             {"id": "f-a3-end", "source": str(a[3].id), "target": "end", "flow_type": "control",
-             "guard": "Vượt ngân sách → từ chối", "source_handle": "right", "target_handle": "right",
-             "waypoints": [{"x": c1(1), "y": npos1[str(a[3].id)]["y"]}, {"x": c1(1), "y": end1["y"]}]},
+             "guard": "Vượt ngân sách → từ chối", "source_handle": "right"},
             {"id": "f-a4-a5",  "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
             {"id": "f-a5-a6",  "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
-            # Decision a[6]: ≤50M=bottom → record, >50M=left → merge (cross-lane)
             {"id": "f-a6-a7",  "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control",
              "guard": "≤ 50M VND", "source_handle": "bottom"},
             {"id": "f-a6-a8",  "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control",
-             "guard": "> 50M VND → duyệt cấp 2", "source_handle": "left", "target_handle": "top",
-             "waypoints": [{"x": a6["x"] - 100, "y": a6["y"]}, {"x": a8["x"], "y": (a6["y"] + a8["y"]) / 2}]},
+             "guard": "> 50M VND → duyệt cấp 2", "source_handle": "left"},
             {"id": "f-a7-a8",  "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
             {"id": "f-a8-a9",  "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
             {"id": "f-a9-end", "source": str(a[9].id), "target": "end",        "flow_type": "control"},
@@ -544,25 +521,14 @@ async def seed():
         for lane in flow2.swimlane["lanes"]:
             lane["title"] = f2_lane_titles.get(lane["id"], lane["id"])
 
-        npos2 = {n["id"]: n for n in flow2.swimlane["actions"]}
-        npos2["start"] = flow2.swimlane["initial_node"]
-        npos2["end"]   = flow2.swimlane["activity_final_node"]
-        r2_right = max(ln["x_left"] + ln["width"] for ln in flow2.swimlane["lanes"])
-        def c2(i): return r2_right + 180 + i * 70
-
-        b2 = npos2[str(b[2].id)]  # decision node
-        end2 = npos2["end"]
-
         flow2.swimlane["flows"] = [
             {"id": "f-start-b0", "source": "start",       "target": str(b[0].id), "flow_type": "control"},
             {"id": "f-b0-b1",    "source": str(b[0].id),  "target": str(b[1].id), "flow_type": "control"},
             {"id": "f-b1-b2",    "source": str(b[1].id),  "target": str(b[2].id), "flow_type": "control"},
-            # Decision b[2]: no sai lệch=bottom, sai lệch=right → corridor 0
             {"id": "f-b2-b3",  "source": str(b[2].id), "target": str(b[3].id), "flow_type": "control",
              "guard": "Không sai lệch", "source_handle": "bottom"},
             {"id": "f-b2-inc", "source": str(b[2].id), "target": "end", "flow_type": "control",
-             "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right", "target_handle": "right",
-             "waypoints": [{"x": c2(0), "y": b2["y"]}, {"x": c2(0), "y": end2["y"]}]},
+             "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right"},
             {"id": "f-b3-b4",  "source": str(b[3].id),  "target": str(b[4].id), "flow_type": "control"},
             {"id": "f-b4-b5",  "source": str(b[4].id),  "target": str(b[5].id), "flow_type": "control"},
             {"id": "f-b5-b6",  "source": str(b[5].id),  "target": str(b[6].id), "flow_type": "object"},

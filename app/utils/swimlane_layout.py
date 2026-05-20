@@ -6,9 +6,11 @@ Stage 5: review_positions  — Bedrock AI review with rule-based fallback
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -49,9 +51,6 @@ CHAR_WIDTH = 8.5            # estimated px per character
 LINE_HEIGHT = 22            # px per text line
 LABEL_H_PADDING = 24        # total horizontal inner padding of text area
 LABEL_V_PADDING = 20        # total vertical inner padding of text area
-MIN_CORRIDOR_OFFSET = 180   # rightmost_lane_right + this → first reject corridor x
-CORRIDOR_STEP = 70          # x spacing between consecutive reject corridors
-MIN_EDGE_CLEARANCE = 40     # minimum px clearance between an edge and unrelated nodes
 
 
 # ── Data classes ───────────────────────────────────────────────────────────────
@@ -87,12 +86,6 @@ class NodeLayout:
 
 
 @dataclass
-class WaypointSpec:
-    x: float
-    y: float
-
-
-@dataclass
 class FlowLayout:
     id: str
     source: str
@@ -101,7 +94,6 @@ class FlowLayout:
     target_handle: str | None = None
     guard: str | None = None
     flow_type: str = "control"
-    waypoints: list[WaypointSpec] = field(default_factory=list)
 
 
 @dataclass
@@ -247,10 +239,7 @@ def _build_flows(
     final: NodeLayout,
     lanes: list[LaneSpec],
 ) -> list[FlowLayout]:
-    node_map: dict[str, NodeLayout] = {n.id: n for n in [initial, final] + nodes}
-    rightmost_right = lanes[-1].x_right if lanes else 450.0
     flows: list[FlowLayout] = []
-    reject_index = 0
 
     raw_flows: list[dict] = []
     for action in sorted(actions, key=lambda a: a.get("order", 0)):
@@ -258,7 +247,6 @@ def _build_flows(
             raw_flows.append(edge)
 
     if not raw_flows:
-        # Linear auto-flow
         seq: list[NodeLayout] = [initial] + nodes + [final]
         for j in range(len(seq) - 1):
             flows.append(FlowLayout(
@@ -268,37 +256,13 @@ def _build_flows(
         return flows
 
     for edge in raw_flows:
-        src = node_map.get(edge["source"])
-        tgt = node_map.get(edge["target"])
-        is_reject = edge.get("source_handle") == "right"
-        waypoints: list[WaypointSpec] = []
-        target_handle = edge.get("target_handle")
-
-        if is_reject and src and tgt:
-            corridor_x = rightmost_right + MIN_CORRIDOR_OFFSET + reject_index * CORRIDOR_STEP
-            reject_index += 1
-            waypoints = [
-                WaypointSpec(x=corridor_x, y=src.y),
-                WaypointSpec(x=corridor_x, y=tgt.y),
-            ]
-            target_handle = "right"
-        elif src and tgt and tgt.x < src.x:
-            # Cross-lane going left
-            mid_y = (src.y + tgt.y) / 2
-            waypoints = [
-                WaypointSpec(x=tgt.x + 130, y=src.y),
-                WaypointSpec(x=tgt.x, y=mid_y),
-            ]
-            target_handle = "top"
-
         flows.append(FlowLayout(
             id=edge["id"],
             source=edge["source"], target=edge["target"],
             source_handle=edge.get("source_handle"),
-            target_handle=target_handle,
+            target_handle=edge.get("target_handle"),
             guard=edge.get("guard"),
             flow_type=edge.get("flow_type", "control"),
-            waypoints=waypoints,
         ))
 
     return flows
@@ -307,54 +271,52 @@ def _build_flows(
 # ── Stage 5: review_positions ──────────────────────────────────────────────────
 
 _REVIEW_PROMPT = """\
-You are a UML swimlane diagram layout expert. Review the node positions and edge routing below \
-for visual quality and correctness. Return ONLY compact JSON — no explanation.
+You are a UML swimlane diagram layout validator. You receive exact node positions calculated \
+by a rule-based engine. Your job is to detect violations only — do NOT invent new positions, \
+do NOT move nodes unless a rule below is provably violated by the given numbers.
 
-## Lane geometry
+## Context
+- Total lanes: {lane_count}
+- Total nodes: {node_count} (including start/end)
+- Canvas width: {canvas_width}px
+
+## Lane geometry (authoritative — do not change lane boundaries)
 {lane_info}
 
-## Nodes
+## Nodes (id, notation, lane, current x/y/width/height, label length in chars)
 {nodes_json}
 
-## Flows (edges)
+## Flows (edges between nodes)
 {flows_json}
 
-## Review checklist
+## Validation rules — check each node against these, using the EXACT numbers above
 
-1. **Label overflow** — Does node width fit the label?
-   - Estimate: char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px, max_lines=5
-   - Decision diamond: usable width ≈ 60% of node width
-   - If label overflows, increase width (cap at {max_node_width}px) and recalculate height
+1. **Label overflow** — char_width=8.5px, h_padding=24px, v_padding=20px, line_height=22px
+   - action/objectNode: usable_w = width - 24; chars_per_line = floor(usable_w / 8.5)
+     lines = ceil(label_chars / chars_per_line); required_height = lines * 22 + 20
+     If current height < required_height → set height = required_height
+   - decision: usable_w = width * 0.6 - 24; apply same formula; cap width at {max_node_width}px
 
-2. **Lane boundary** — Node must stay inside lane with 20px margin:
-   - x - width/2 >= lane_x_left + 20
-   - x + width/2 <= lane_x_right - 20
-   - If violated, adjust x toward lane center or widen the lane
+2. **Lane boundary** — node center x must satisfy:
+   - x - width/2 >= lane_x_left + 20  AND  x + width/2 <= lane_x_right - 20
+   - If violated: set x = lane_x_center (use the x_center from Lane geometry above)
 
-3. **Vertical spacing** — Minimum gap between consecutive nodes in same lane:
-   - gap = prev.height/2 + 80 + next.height/2 (add 20px if next is decision)
-   - If gap too small, push conflicting node down (cascade all nodes below it)
+3. **Vertical spacing** — for nodes in the SAME lane, sorted by y:
+   - min_gap = prev.height/2 + 80 + next.height/2
+   - If next.y - prev.y < min_gap → set next.y = prev.y + min_gap (cascade down)
 
-4. **Edge / corridor overlap** — No edge waypoint should pass within {clearance}px of a node it doesn't connect:
-   - Reject corridors (right-exit edges): ensure corridor_x > lane_x_right + 20 of ALL lanes it passes through
-   - If two corridors share the same x, offset second by +{corridor_step}px
+4. **Aspect ratio** — for action/objectNode: if height < 42 (line_height + v_padding) → set height = 42
 
-5. **Aspect ratio** — For action/objectNode: height should allow comfortable reading (min 1 full line visible)
-   - If height < line_height + v_padding, increase height
+## STRICT output rules
+- Only include nodes where you changed at least one value
+- Do NOT change x unless rule 2 is violated
+- Do NOT guess or estimate — use only the numbers provided above
+- Do NOT add explanation, markdown, or commentary
 
-## Response format
+Return exactly:
+{{"nodes": [{{"id": "...", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}}]}}
 
-Return exactly this JSON structure (omit sections with no changes):
-{{
-  "nodes": [
-    {{"id": "...", "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0}}
-  ],
-  "flows": [
-    {{"id": "...", "waypoints": [{{"x": 0.0, "y": 0.0}}]}}
-  ]
-}}
-
-If nothing needs changing: {{"nodes": [], "flows": []}}\
+If no violations found: {{"nodes": []}}\
 """
 
 
@@ -391,6 +353,30 @@ def _rule_based_review(layout: SwimlaneLayout, max_iterations: int = 3) -> Swiml
     return layout
 
 
+def _extract_json_from_response(text: str) -> dict:
+    """Extract a JSON object from Bedrock response — handles prose, code fences, and bare JSON."""
+    stripped = text.strip()
+    if not stripped:
+        return {}
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+    m = re.search(r"\{.*\}", stripped, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
 async def _bedrock_review(
     layout: SwimlaneLayout,
     access_key: str,
@@ -399,7 +385,6 @@ async def _bedrock_review(
     model_id: str,
 ) -> SwimlaneLayout:
     import asyncio
-    import json
 
     all_nodes = [layout.initial_node] + layout.nodes + [layout.final_node]
     node_map = {n.id: n for n in all_nodes}
@@ -436,26 +421,26 @@ async def _bedrock_review(
             "target": f.target,
             "source_handle": f.source_handle,
             "guard": f.guard,
-            "waypoints": [{"x": wp.x, "y": wp.y} for wp in f.waypoints],
         }
         for f in layout.flows
-        if f.waypoints or f.source_handle == "right"
     ]
 
+    canvas_width = layout.lanes[-1].x_right if layout.lanes else 600.0
     prompt = _REVIEW_PROMPT.format(
+        lane_count=len(layout.lanes),
+        node_count=len(all_nodes),
+        canvas_width=round(canvas_width),
         lane_info=json.dumps(lane_info, indent=2),
         nodes_json=json.dumps(nodes_payload, indent=2),
         flows_json=json.dumps(flows_payload, indent=2),
         max_node_width=MAX_NODE_WIDTH,
-        clearance=MIN_EDGE_CLEARANCE,
-        corridor_step=CORRIDOR_STEP,
     )
 
     raw = await asyncio.to_thread(
         _invoke_bedrock_review, prompt, access_key, secret_key, region, model_id
     )
 
-    result: dict = json.loads(raw) if raw.strip() not in ("{}", "") else {}
+    result: dict = _extract_json_from_response(raw)
     node_adjustments: list[dict] = result.get("nodes", [])
     flow_adjustments: list[dict] = result.get("flows", [])
 
@@ -472,14 +457,11 @@ async def _bedrock_review(
                 node.x = new_x
             # else: ignore — x stays at lane center
 
-    flow_map = {f.id: f for f in layout.flows}
-    for adj in flow_adjustments:
-        flow = flow_map.get(adj.get("id", ""))
-        if flow and "waypoints" in adj:
-            flow.waypoints = [WaypointSpec(x=wp["x"], y=wp["y"]) for wp in adj["waypoints"]]
-
-    # Safety net: rule-based pass after LLM
-    return _rule_based_review(layout, max_iterations=1)
+    # Safety net: single rule-based pass after LLM — silent (no raise on remaining conflicts)
+    conflicts = _find_conflicts(layout)
+    if conflicts:
+        layout = _auto_fix(layout, conflicts)
+    return layout
 
 
 def _invoke_bedrock_review(
@@ -535,22 +517,6 @@ def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
                     "delta": 0,
                     "desc": f"node {n.id} (w={n.width}) exceeds lane [{lane.x_left},{lane.x_right}]",
                 })
-
-    # 3. Corridor waypoint collision
-    for flow in layout.flows:
-        for wp in flow.waypoints:
-            for n in all_nodes:
-                if n.id in (flow.source, flow.target):
-                    continue
-                x0, y0, x1, y1 = n.bbox()
-                if x0 - MIN_EDGE_CLEARANCE <= wp.x <= x1 + MIN_EDGE_CLEARANCE and \
-                   y0 - MIN_EDGE_CLEARANCE <= wp.y <= y1 + MIN_EDGE_CLEARANCE:
-                    conflicts.append({
-                        "type": "corridor_collision",
-                        "flow_id": flow.id,
-                        "delta": 0,
-                        "desc": f"waypoint ({wp.x},{wp.y}) of {flow.id} too close to {n.id}",
-                    })
 
     return conflicts
 
@@ -640,7 +606,6 @@ def layout_to_swimlane_dict(layout: SwimlaneLayout, flow_id: str, title: str) ->
                 "target_handle": f.target_handle,
                 "guard": f.guard,
                 "flow_type": f.flow_type,
-                "waypoints": [{"x": wp.x, "y": wp.y} for wp in f.waypoints] or None,
             }
             for f in layout.flows
         ],
