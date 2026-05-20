@@ -18,10 +18,11 @@ from app.models.project_business import (
     ProjectRule,
 )
 from app.models.stakeholder import Stakeholder
-from app.utils.notation_detector import detect_notation
-from app.utils.swimlane_layout import (
+from app.utils.swimlane import (
     calculate_layout,
+    detect_notation,
     layout_to_swimlane_dict,
+    normalize_node_label,
     review_positions,
 )
 
@@ -156,7 +157,7 @@ class ProjectBusinessService:
         )
         return [ProjectFlowResponse.model_validate(f) for f in result.scalars().all()]
 
-    async def list_flow_templates(self, project_id: uuid.UUID) -> list:
+    async def list_flow_templates(self, project_id: uuid.UUID, flow_id: uuid.UUID) -> list:
         from app.schemas.project_business import (
             FlowTemplateActorResponse,
             FlowTemplateResponse,
@@ -165,7 +166,7 @@ class ProjectBusinessService:
 
         result = await self.db.execute(
             select(ProjectFlow)
-            .where(ProjectFlow.project_id == project_id)
+            .where(ProjectFlow.project_id == project_id, ProjectFlow.id == flow_id)
             .options(
                 selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor)
             )
@@ -349,11 +350,21 @@ class ProjectBusinessService:
                 model_id=settings.bedrock_notation_model,
             )
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
+            actor_name = action.actor.name if action.actor else None
+            label = await normalize_node_label(
+                action.description or "",
+                actor_name=actor_name,
+                notation=notation,
+                access_key=settings.aws_access_key_id,
+                secret_key=settings.aws_secret_access_key,
+                region=settings.aws_region,
+                model_id=settings.bedrock_notation_model,
+            )
             actions_with_notation.append({
                 "id": str(action.id),
                 "lane_id": lane_id,
                 "notation": notation,
-                "label": action.description or "",
+                "label": label,
                 "order": action.order,
             })
 
