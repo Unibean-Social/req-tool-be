@@ -673,16 +673,30 @@ class ProjectBusinessService:
 
     # ── Out of Scope ──────────────────────────────────────────────────────────
 
-    async def create_out_of_scope(self, project_id: uuid.UUID, items: list[OutOfScopeCreate]) -> list[OutOfScopeResponse]:
-        objs = [
-            ProjectOutOfScope(project_id=project_id, description=item.description, category=item.category, order=item.order)
-            for item in items
-        ]
-        self.db.add_all(objs)
+    async def upsert_out_of_scope(self, project_id: uuid.UUID, body: OutOfScopeCreate) -> OutOfScopeResponse:
+        if body.id is not None:
+            result = await self.db.execute(
+                select(ProjectOutOfScope).where(
+                    ProjectOutOfScope.id == body.id,
+                    ProjectOutOfScope.project_id == project_id,
+                )
+            )
+            obj = result.scalar_one_or_none()
+            if not obj:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
+            for field, value in body.model_dump(exclude={"id"}, exclude_unset=True).items():
+                setattr(obj, field, value)
+        else:
+            obj = ProjectOutOfScope(
+                project_id=project_id,
+                description=body.description,
+                category=body.category,
+                order=body.order,
+            )
+            self.db.add(obj)
         await self.db.flush()
-        for obj in objs:
-            await self.db.refresh(obj)
-        return [OutOfScopeResponse.model_validate(o) for o in objs]
+        await self.db.refresh(obj)
+        return OutOfScopeResponse.model_validate(obj)
 
     async def list_out_of_scope(self, project_id: uuid.UUID, category: OutOfScopeCategory | None = None) -> list[OutOfScopeResponse]:
         q = select(ProjectOutOfScope).where(ProjectOutOfScope.project_id == project_id)

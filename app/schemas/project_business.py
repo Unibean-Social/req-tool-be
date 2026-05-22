@@ -159,6 +159,7 @@ class ProjectRuleResponse(BaseModel):
 # ── Out of Scope ───────────────────────────────────────────────────────────────
 
 class OutOfScopeCreate(BaseModel):
+    id: uuid.UUID | None = None  # present → update existing; absent → create new
     description: str
     category: OutOfScopeCategory | None = None
     order: int = 0
