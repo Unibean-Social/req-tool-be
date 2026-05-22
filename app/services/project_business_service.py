@@ -117,8 +117,8 @@ class ProjectBusinessService:
             await self.db.flush()
             if body.objectives:
                 self.db.add_all([ProjectGoalObjective(goal_id=obj.id, description=d) for d in body.objectives])
-                await self.db.flush()
-            await self.db.refresh(obj, attribute_names=["objectives"])
+        await self.db.flush()
+        await self.db.refresh(obj)
         return ProjectGoalResponse.model_validate(obj)
 
     async def delete_goal(self, project_id: uuid.UUID, goal_id: uuid.UUID) -> None:
