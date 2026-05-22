@@ -81,12 +81,14 @@ class ProjectConstraintCreate(BaseModel):
     type: ConstraintType
     description: str
     severity: ConstraintSeverity = ConstraintSeverity.medium
+    risk: str | None = None
 
 
 class ProjectConstraintUpdate(BaseModel):
     type: ConstraintType | None = None
     description: str | None = None
     severity: ConstraintSeverity | None = None
+    risk: str | None = None
 
 
 class ProjectConstraintResponse(BaseModel):
@@ -97,6 +99,7 @@ class ProjectConstraintResponse(BaseModel):
     type: ConstraintType
     description: str
     severity: ConstraintSeverity
+    risk: str | None
     created_at: datetime
     updated_at: datetime
 

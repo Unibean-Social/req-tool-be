@@ -591,7 +591,7 @@ class ProjectBusinessService:
     # ── Constraints ──────────────────────────────────────────────────────────
 
     async def create_constraint(self, project_id: uuid.UUID, body: ProjectConstraintCreate) -> ProjectConstraintResponse:
-        obj = ProjectConstraint(project_id=project_id, type=body.type, description=body.description, severity=body.severity)
+        obj = ProjectConstraint(project_id=project_id, type=body.type, description=body.description, severity=body.severity, risk=body.risk)
         self.db.add(obj)
         await self.db.flush()
         return ProjectConstraintResponse.model_validate(obj)
@@ -612,12 +612,8 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy constraint")
-        if body.type is not None:
-            obj.type = body.type
-        if body.description is not None:
-            obj.description = body.description
-        if body.severity is not None:
-            obj.severity = body.severity
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
         return ProjectConstraintResponse.model_validate(obj)
 
     async def delete_constraint(self, project_id: uuid.UUID, constraint_id: uuid.UUID) -> None:
@@ -677,17 +673,16 @@ class ProjectBusinessService:
 
     # ── Out of Scope ──────────────────────────────────────────────────────────
 
-    async def create_out_of_scope(self, project_id: uuid.UUID, body: OutOfScopeCreate) -> OutOfScopeResponse:
-        obj = ProjectOutOfScope(
-            project_id=project_id,
-            description=body.description,
-            category=body.category,
-            order=body.order,
-        )
-        self.db.add(obj)
+    async def create_out_of_scope(self, project_id: uuid.UUID, items: list[OutOfScopeCreate]) -> list[OutOfScopeResponse]:
+        objs = [
+            ProjectOutOfScope(project_id=project_id, description=item.description, category=item.category, order=item.order)
+            for item in items
+        ]
+        self.db.add_all(objs)
         await self.db.flush()
-        await self.db.refresh(obj)
-        return OutOfScopeResponse.model_validate(obj)
+        for obj in objs:
+            await self.db.refresh(obj)
+        return [OutOfScopeResponse.model_validate(o) for o in objs]
 
     async def list_out_of_scope(self, project_id: uuid.UUID, category: OutOfScopeCategory | None = None) -> list[OutOfScopeResponse]:
         q = select(ProjectOutOfScope).where(ProjectOutOfScope.project_id == project_id)

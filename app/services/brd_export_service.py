@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.nfr import NFR
 from app.models.project import Project
 from app.models.project_business import (
     ProjectBusinessRequirement,
@@ -41,7 +40,6 @@ class BRDExportService:
             rules_result,
             flows_result,
             constraints_result,
-            nfrs_result,
             out_of_scope_result,
         ) = await asyncio.gather(
             self.db.get(Project, project_id),
@@ -71,9 +69,6 @@ class BRDExportService:
                 select(ProjectConstraint).where(ProjectConstraint.project_id == project_id).order_by(ProjectConstraint.created_at)
             ),
             self.db.execute(
-                select(NFR).where(NFR.project_id == project_id).order_by(NFR.created_at)
-            ),
-            self.db.execute(
                 select(ProjectOutOfScope)
                 .where(ProjectOutOfScope.project_id == project_id)
                 .order_by(ProjectOutOfScope.order)
@@ -89,7 +84,6 @@ class BRDExportService:
         rules = rules_result.scalars().all()
         flows = flows_result.scalars().all()
         constraints = constraints_result.scalars().all()
-        nfrs = nfrs_result.scalars().all()
         out_of_scope_items = out_of_scope_result.scalars().all()
 
         start = str(project.start_date) if project.start_date else "TBD"
@@ -191,30 +185,21 @@ class BRDExportService:
 
         # 7. Constraints
         if constraints:
-            rows = ["| Type | Severity | Description |", "|------|----------|-------------|"]
+            rows = ["| Type | Severity | Description | Risk |", "|------|----------|-------------|------|"]
             for c in constraints:
-                rows.append(f"| {c.type.value} | {c.severity.value} | {c.description} |")
+                rows.append(f"| {c.type.value} | {c.severity.value} | {c.description} | {_or_na(c.risk)} |")
             sections.append("## 7. Constraints\n\n" + "\n".join(rows))
         else:
             sections.append("## 7. Constraints\n\n_No constraints defined._")
 
-        # 8. User Requirements (NFRs)
-        if nfrs:
-            rows = ["| Category | Priority | Description |", "|----------|----------|-------------|"]
-            for n in nfrs:
-                rows.append(f"| {n.category.value} | {n.priority.value} | {n.description} |")
-            sections.append("## 8. User Requirements (NFRs)\n\n" + "\n".join(rows))
-        else:
-            sections.append("## 8. User Requirements (NFRs)\n\n_No non-functional requirements defined._")
-
-        # 9. Out of Scope
+        # 8. Out of Scope
         if out_of_scope_items:
             rows = ["| # | Category | Description |", "|---|----------|-------------|"]
             for i, item in enumerate(out_of_scope_items, 1):
                 cat = item.category.value if item.category else "—"
                 rows.append(f"| {i} | {cat} | {item.description} |")
-            sections.append("## 9. Out of Scope\n\n" + "\n".join(rows))
+            sections.append("## 8. Out of Scope\n\n" + "\n".join(rows))
         else:
-            sections.append("## 9. Out of Scope\n\n_No out-of-scope items defined._")
+            sections.append("## 8. Out of Scope\n\n_No out-of-scope items defined._")
 
         return "\n\n---\n\n".join(sections)

@@ -364,10 +364,10 @@ async def delete_business_requirement(
 
 # ── Out of Scope ──────────────────────────────────────────────────────────────
 
-@router.post("/out-of-scope", response_model=ApiResponse[OutOfScopeResponse], status_code=status.HTTP_201_CREATED, tags=["Out of Scope"])
+@router.post("/out-of-scope", response_model=ApiResponse[list[OutOfScopeResponse]], status_code=status.HTTP_201_CREATED, tags=["Out of Scope"])
 async def create_out_of_scope(
     project_id: uuid.UUID,
-    body: OutOfScopeCreate,
+    body: list[OutOfScopeCreate],
     user: User = Depends(current_user),
     service: ProjectBusinessService = Depends(get_project_business_service),
 ):

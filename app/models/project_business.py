@@ -157,6 +157,7 @@ class ProjectConstraint(AuditMixin, Base):
     type: Mapped[ConstraintType] = mapped_column(_constraint_type, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[ConstraintSeverity] = mapped_column(_constraint_severity, nullable=False, default=ConstraintSeverity.medium)
+    risk: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="constraints")  # noqa: F821
 
