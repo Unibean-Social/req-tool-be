@@ -4,11 +4,12 @@ import hashlib
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.models.project import Project
 from app.models.project_business import (
     OutOfScopeCategory,
     ProjectBusinessRequirement,
@@ -545,8 +546,14 @@ class ProjectBusinessService:
     # ── Rules ────────────────────────────────────────────────────────────────
 
     async def create_rule(self, project_id: uuid.UUID, body: ProjectRuleCreate) -> ProjectRuleResponse:
+        await self.db.execute(select(Project).where(Project.id == project_id).with_for_update())
+        max_n = await self.db.scalar(
+            select(func.max(cast(func.substr(ProjectRule.code, 4), Integer)))
+            .where(ProjectRule.project_id == project_id)
+        )
         obj = ProjectRule(
             project_id=project_id,
+            code=f"BR-{(max_n or 0) + 1:03d}",
             rule_def=body.rule_def,
             type=body.type,
             is_dynamic=body.is_dynamic,
@@ -554,6 +561,7 @@ class ProjectBusinessService:
         )
         self.db.add(obj)
         await self.db.flush()
+        await self.db.refresh(obj)
         return ProjectRuleResponse.model_validate(obj)
 
     async def list_rules(self, project_id: uuid.UUID) -> list[ProjectRuleResponse]:

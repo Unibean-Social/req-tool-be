@@ -148,6 +148,7 @@ class ProjectRuleResponse(BaseModel):
 
     id: uuid.UUID
     project_id: uuid.UUID
+    code: str
     rule_def: str
     type: RuleType
     is_dynamic: bool

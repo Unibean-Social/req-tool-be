@@ -69,7 +69,12 @@ class BRDExportService:
             self.db.execute(
                 select(ProjectFlow)
                 .where(ProjectFlow.project_id == project_id)
-                .options(selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor))
+                .options(
+                    selectinload(ProjectFlow.actions)
+                    .selectinload(ProjectFlowAction.actor),
+                    selectinload(ProjectFlow.actions)
+                    .selectinload(ProjectFlowAction.rules),
+                )
             ),
             self.db.execute(
                 select(ProjectConstraint).where(ProjectConstraint.project_id == project_id).order_by(ProjectConstraint.created_at)
@@ -177,10 +182,11 @@ class BRDExportService:
                 desc = f"\n{f.description}" if f.description else ""
                 if f.actions:
                     sorted_actions = sorted(f.actions, key=lambda a: a.order)
-                    rows = ["| Step | Action | Actor |", "|------|--------|-------|"]
+                    rows = ["| Step | Action | Actor | BR |", "|------|--------|-------|----|"]
                     for i, a in enumerate(sorted_actions, 1):
                         actor_name = a.actor.name if a.actor else "—"
-                        rows.append(f"| {i} | {a.description} | {actor_name} |")
+                        br_codes = ", ".join(r.code for r in sorted(a.rules, key=lambda r: r.code)) if a.rules else "—"
+                        rows.append(f"| {i} | {a.description} | {actor_name} | {br_codes} |")
                     action_table = "\n".join(rows)
                 else:
                     action_table = "_No actions defined._"

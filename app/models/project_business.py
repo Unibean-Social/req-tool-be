@@ -136,6 +136,7 @@ class ProjectRule(AuditMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    code: Mapped[str] = mapped_column(Text, nullable=False)
     rule_def: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[RuleType] = mapped_column(_rule_type, nullable=False)
     is_dynamic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
