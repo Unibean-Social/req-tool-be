@@ -51,7 +51,7 @@ from app.schemas.project_business import (
     SwimlaneRequest,
 )
 from app.schemas.response import ApiResponse
-from app.services.brd_export_service import BRDExportService
+from app.services.brd_export_service import BRDExportService, BRDResponse
 from app.services.project_business_service import ProjectBusinessService
 
 router = APIRouter(prefix="/projects/{project_id}")
@@ -463,20 +463,14 @@ async def get_setup_progress(
 
 # ── BRD Export ────────────────────────────────────────────────────────────────
 
-@router.get("/brd/export", tags=["BRD"])
-async def export_brd(
+@router.get("/brd", response_model=ApiResponse[BRDResponse], tags=["BRD"])
+async def get_brd(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
     service: BRDExportService = Depends(get_brd_export_service),
 ):
     await require_project_access(project_id, user, service.db)
-    from fastapi.responses import Response
-    md = await service.generate(project_id)
-    return Response(
-        content=md,
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="brd-{project_id}.md"'},
-    )
+    return ok(await service.generate(project_id))
 
 
 @router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]], tags=["Project Setup"])

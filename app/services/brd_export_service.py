@@ -4,6 +4,12 @@ import asyncio
 import uuid
 from datetime import date
 
+from pydantic import BaseModel
+
+
+class BRDResponse(BaseModel):
+    markdown: str
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +37,7 @@ class BRDExportService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def generate(self, project_id: uuid.UUID) -> str:
+    async def generate(self, project_id: uuid.UUID) -> BRDResponse:
         (
             project,
             goals_result,
@@ -202,4 +208,4 @@ class BRDExportService:
         else:
             sections.append("## 8. Out of Scope\n\n_No out-of-scope items defined._")
 
-        return "\n\n---\n\n".join(sections)
+        return BRDResponse(markdown="\n\n---\n\n".join(sections))
