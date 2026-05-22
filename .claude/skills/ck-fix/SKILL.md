@@ -1,13 +1,12 @@
 ---
 name: ck:fix
-description: Fix a bug using Scout → Diagnose → Fix → Review → Finalize. Use when the user pastes an error message, stack trace, or test failure, or says "fix this bug", "something's broken", "tests are failing", "I'm getting an error". Modes: --fast (trivial errors — lint, type, build — skip scout and review), --hard (mandatory review, no auto-approve).
+description: Fix a bug using Scout → Diagnose → Fix → Review → Finalize. Use when the user pastes an error message, stack trace, or test failure, or says "fix this bug", "something's broken", "tests are failing", "I'm getting an error". Modes (pick one): --fast (trivial errors — lint, type, build — skip scout and review), --hard (mandatory review, no auto-approve).
 user-invocable: true
 ---
 
 # ck:fix — Structured Bug-Fix Pipeline
 
-Modes (default = Standard: auto-approve if score ≥ 9.5 with 0 CRITICAL):
-
+Modes — mutually exclusive, pick one (default = Standard: auto-approve if score ≥ 9.5 with 0 CRITICAL):
 - **`--fast`** — trivial issues (lint, type errors, build errors); skip scout, review, docs
 - **`--hard`** — mandatory review, no auto-approve
 
