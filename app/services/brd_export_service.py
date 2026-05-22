@@ -124,7 +124,8 @@ class BRDExportService:
             for g in goals:
                 obj_lines = "\n".join(f"- {o.description}" for o in g.objectives) if g.objectives else "- _No objectives defined._"
                 goal_blocks.append(
-                    f"### {g.description} `[{g.priority.value}]`\n"
+                    f"### {g.description}\n"
+                    f"- **Priority:** {g.priority.value}\n"
                     f"- **Success Metric:** {_or_na(g.success_metric)}\n"
                     f"- **Target Date:** {_or_na(g.target_date)}\n\n"
                     f"**Objectives:**\n{obj_lines}"
@@ -169,7 +170,7 @@ class BRDExportService:
             }
             for rtype, label in type_labels.items():
                 if rtype in grouped:
-                    items = "\n".join(f"- {r.rule_def}" for r in grouped[rtype])
+                    items = "\n".join(f"- `{r.code}` {r.rule_def}" for r in sorted(grouped[rtype], key=lambda r: r.code))
                     rule_blocks.append(f"### {label}\n{items}")
             sections.append("## 5. Business Rules\n\n" + "\n\n".join(rule_blocks))
         else:
@@ -182,7 +183,7 @@ class BRDExportService:
                 desc = f"\n{f.description}" if f.description else ""
                 if f.actions:
                     sorted_actions = sorted(f.actions, key=lambda a: a.order)
-                    rows = ["| Step | Action | Actor | BR |", "|------|--------|-------|----|"]
+                    rows = ["| Step | Action | Actor | Business Rules |", "|------|--------|-------|----------------|"]
                     for i, a in enumerate(sorted_actions, 1):
                         actor_name = a.actor.name if a.actor else "—"
                         br_codes = ", ".join(r.code for r in sorted(a.rules, key=lambda r: r.code)) if a.rules else "—"
