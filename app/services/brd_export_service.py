@@ -125,9 +125,8 @@ class BRDExportService:
                 obj_lines = "\n".join(f"- {o.description}" for o in g.objectives) if g.objectives else "- _No objectives defined._"
                 goal_blocks.append(
                     f"### {g.description}\n"
-                    f"- **Priority:** {g.priority.value}\n"
                     f"- **Success Metric:** {_or_na(g.success_metric)}\n"
-                    f"- **Target Date:** {_or_na(g.target_date)}\n\n"
+                    f"- **Target Date:** {_or_na(g.target_date)} | **Priority:** {g.priority.value}\n\n"
                     f"**Objectives:**\n{obj_lines}"
                 )
             sections.append("## 2. Business Goals & Objectives\n\n" + "\n\n".join(goal_blocks))
