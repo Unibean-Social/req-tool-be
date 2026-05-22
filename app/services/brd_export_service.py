@@ -185,9 +185,9 @@ class BRDExportService:
 
         # 7. Constraints
         if constraints:
-            rows = ["| Type | Severity | Description | Risk |", "|------|----------|-------------|------|"]
+            rows = ["| Type | Severity | Description |", "|------|----------|-------------|"]
             for c in constraints:
-                rows.append(f"| {c.type.value} | {c.severity.value} | {c.description} | {_or_na(c.risk)} |")
+                rows.append(f"| {c.type.value} | {c.severity.value} | {c.description} |")
             sections.append("## 7. Constraints\n\n" + "\n".join(rows))
         else:
             sections.append("## 7. Constraints\n\n_No constraints defined._")

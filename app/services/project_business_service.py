@@ -591,7 +591,7 @@ class ProjectBusinessService:
     # ── Constraints ──────────────────────────────────────────────────────────
 
     async def create_constraint(self, project_id: uuid.UUID, body: ProjectConstraintCreate) -> ProjectConstraintResponse:
-        obj = ProjectConstraint(project_id=project_id, type=body.type, description=body.description, severity=body.severity, risk=body.risk)
+        obj = ProjectConstraint(project_id=project_id, type=body.type, description=body.description, severity=body.severity)
         self.db.add(obj)
         await self.db.flush()
         return ProjectConstraintResponse.model_validate(obj)
