@@ -10,12 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.project_business import (
+    OutOfScopeCategory,
     ProjectBusinessRequirement,
     ProjectConstraint,
     ProjectFlow,
     ProjectFlowAction,
     ProjectGoal,
     ProjectGoalObjective,
+    ProjectOutOfScope,
     ProjectRule,
 )
 from app.models.stakeholder import Stakeholder
@@ -31,6 +33,9 @@ from app.utils.swimlane import (
 
 _DEFAULT_LANE = "lane-default"
 from app.schemas.project_business import (
+    OutOfScopeCreate,
+    OutOfScopeResponse,
+    OutOfScopeUpdate,
     ProjectBusinessRequirementCreate,
     ProjectBusinessRequirementResponse,
     ProjectBusinessRequirementUpdate,
@@ -668,4 +673,47 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy business requirement")
+        await self.db.delete(obj)
+
+    # ── Out of Scope ──────────────────────────────────────────────────────────
+
+    async def create_out_of_scope(self, project_id: uuid.UUID, body: OutOfScopeCreate) -> OutOfScopeResponse:
+        obj = ProjectOutOfScope(
+            project_id=project_id,
+            description=body.description,
+            category=body.category,
+            order=body.order,
+        )
+        self.db.add(obj)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return OutOfScopeResponse.model_validate(obj)
+
+    async def list_out_of_scope(self, project_id: uuid.UUID, category: OutOfScopeCategory | None = None) -> list[OutOfScopeResponse]:
+        q = select(ProjectOutOfScope).where(ProjectOutOfScope.project_id == project_id)
+        if category is not None:
+            q = q.where(ProjectOutOfScope.category == category)
+        result = await self.db.execute(q.order_by(ProjectOutOfScope.order))
+        return [OutOfScopeResponse.model_validate(o) for o in result.scalars().all()]
+
+    async def update_out_of_scope(self, project_id: uuid.UUID, item_id: uuid.UUID, body: OutOfScopeUpdate) -> OutOfScopeResponse:
+        result = await self.db.execute(
+            select(ProjectOutOfScope).where(ProjectOutOfScope.id == item_id, ProjectOutOfScope.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return OutOfScopeResponse.model_validate(obj)
+
+    async def delete_out_of_scope(self, project_id: uuid.UUID, item_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(ProjectOutOfScope).where(ProjectOutOfScope.id == item_id, ProjectOutOfScope.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
         await self.db.delete(obj)

@@ -17,6 +17,7 @@ from app.models.project_business import (
     ProjectFlow,
     ProjectFlowAction,
     ProjectGoal,
+    ProjectOutOfScope,
     ProjectRule,
     RuleType,
 )
@@ -41,6 +42,7 @@ class BRDExportService:
             flows_result,
             constraints_result,
             nfrs_result,
+            out_of_scope_result,
         ) = await asyncio.gather(
             self.db.get(Project, project_id),
             self.db.execute(
@@ -71,6 +73,11 @@ class BRDExportService:
             self.db.execute(
                 select(NFR).where(NFR.project_id == project_id).order_by(NFR.created_at)
             ),
+            self.db.execute(
+                select(ProjectOutOfScope)
+                .where(ProjectOutOfScope.project_id == project_id)
+                .order_by(ProjectOutOfScope.order)
+            ),
         )
 
         if project is None:
@@ -83,6 +90,7 @@ class BRDExportService:
         flows = flows_result.scalars().all()
         constraints = constraints_result.scalars().all()
         nfrs = nfrs_result.scalars().all()
+        out_of_scope_items = out_of_scope_result.scalars().all()
 
         start = str(project.start_date) if project.start_date else "TBD"
         end = str(project.end_date) if project.end_date else "TBD"
@@ -198,5 +206,15 @@ class BRDExportService:
             sections.append("## 8. User Requirements (NFRs)\n\n" + "\n".join(rows))
         else:
             sections.append("## 8. User Requirements (NFRs)\n\n_No non-functional requirements defined._")
+
+        # 9. Out of Scope
+        if out_of_scope_items:
+            rows = ["| # | Category | Description |", "|---|----------|-------------|"]
+            for i, item in enumerate(out_of_scope_items, 1):
+                cat = item.category.value if item.category else "—"
+                rows.append(f"| {i} | {cat} | {item.description} |")
+            sections.append("## 9. Out of Scope\n\n" + "\n".join(rows))
+        else:
+            sections.append("## 9. Out of Scope\n\n_No out-of-scope items defined._")
 
         return "\n\n---\n\n".join(sections)

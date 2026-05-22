@@ -41,10 +41,19 @@ class ConstraintSeverity(str, enum.Enum):
     low = "low"
 
 
+class OutOfScopeCategory(str, enum.Enum):
+    feature = "feature"
+    integration = "integration"
+    user_group = "user_group"
+    process = "process"
+    technical = "technical"
+
+
 _rule_type = SAEnum(RuleType, name="ruletype")
 _goal_priority = SAEnum(GoalPriority, name="goalpriority", native_enum=False)
 _constraint_type = SAEnum(ConstraintType, name="constrainttype", native_enum=False)
 _constraint_severity = SAEnum(ConstraintSeverity, name="constraintseverity", native_enum=False)
+_out_of_scope_category = SAEnum(OutOfScopeCategory, name="outofscopecategory", native_enum=False)
 
 
 # M2M association table — ProjectFlowAction ↔ ProjectRule
@@ -174,3 +183,16 @@ class ProjectBusinessRequirement(AuditMixin, Base):
     is_critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     project: Mapped["Project"] = relationship(back_populates="business_requirements")  # noqa: F821
+
+
+class ProjectOutOfScope(AuditMixin, Base):
+    __tablename__ = "project_out_of_scope"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[OutOfScopeCategory | None] = mapped_column(_out_of_scope_category, nullable=True)
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    project: Mapped["Project"] = relationship(back_populates="out_of_scope_items")  # noqa: F821

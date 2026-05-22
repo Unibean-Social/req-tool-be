@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
-from app.models.project_business import ConstraintSeverity, ConstraintType, GoalPriority, RuleType
+from app.models.project_business import ConstraintSeverity, ConstraintType, GoalPriority, OutOfScopeCategory, RuleType
 
 
 def _normalize_action_description(value: str) -> str:
@@ -152,6 +152,32 @@ class ProjectRuleResponse(BaseModel):
     type: RuleType
     is_dynamic: bool
     source: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Out of Scope ───────────────────────────────────────────────────────────────
+
+class OutOfScopeCreate(BaseModel):
+    description: str
+    category: OutOfScopeCategory | None = None
+    order: int = 0
+
+
+class OutOfScopeUpdate(BaseModel):
+    description: str | None = None
+    category: OutOfScopeCategory | None = None
+    order: int | None = None
+
+
+class OutOfScopeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    description: str
+    category: OutOfScopeCategory | None
+    order: int
     created_at: datetime
     updated_at: datetime
 

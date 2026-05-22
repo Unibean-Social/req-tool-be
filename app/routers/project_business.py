@@ -15,6 +15,7 @@ from app.models.nfr import NFR
 from app.models.project_business import (
     ConstraintSeverity,
     ConstraintType,
+    OutOfScopeCategory,
     ProjectConstraint,
     ProjectFlow,
     ProjectFlowAction,
@@ -25,6 +26,9 @@ from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
     FlowTemplateResponse,
+    OutOfScopeCreate,
+    OutOfScopeResponse,
+    OutOfScopeUpdate,
     ProjectBusinessRequirementCreate,
     ProjectBusinessRequirementResponse,
     ProjectBusinessRequirementUpdate,
@@ -356,6 +360,53 @@ async def delete_business_requirement(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_business_requirement(project_id, br_id)
+
+
+# ── Out of Scope ──────────────────────────────────────────────────────────────
+
+@router.post("/out-of-scope", response_model=ApiResponse[OutOfScopeResponse], status_code=status.HTTP_201_CREATED, tags=["Out of Scope"])
+async def create_out_of_scope(
+    project_id: uuid.UUID,
+    body: OutOfScopeCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return created(await service.create_out_of_scope(project_id, body))
+
+
+@router.get("/out-of-scope", response_model=ApiResponse[list[OutOfScopeResponse]], tags=["Out of Scope"])
+async def list_out_of_scope(
+    project_id: uuid.UUID,
+    category: OutOfScopeCategory | None = Query(None),
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_out_of_scope(project_id, category))
+
+
+@router.patch("/out-of-scope/{item_id}", response_model=ApiResponse[OutOfScopeResponse], tags=["Out of Scope"])
+async def update_out_of_scope(
+    project_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: OutOfScopeUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_out_of_scope(project_id, item_id, body))
+
+
+@router.delete("/out-of-scope/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Out of Scope"])
+async def delete_out_of_scope(
+    project_id: uuid.UUID,
+    item_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_out_of_scope(project_id, item_id)
 
 
 # ── Setup Progress ────────────────────────────────────────────────────────────
