@@ -4,12 +4,17 @@ import asyncio
 import uuid
 from datetime import date
 
+from pydantic import BaseModel
+
+
+class BRDResponse(BaseModel):
+    markdown: str
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.nfr import NFR
 from app.models.project import Project
 from app.models.project_business import (
     ProjectBusinessRequirement,
@@ -17,6 +22,7 @@ from app.models.project_business import (
     ProjectFlow,
     ProjectFlowAction,
     ProjectGoal,
+    ProjectOutOfScope,
     ProjectRule,
     RuleType,
 )
@@ -31,7 +37,7 @@ class BRDExportService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def generate(self, project_id: uuid.UUID) -> str:
+    async def generate(self, project_id: uuid.UUID) -> BRDResponse:
         (
             project,
             goals_result,
@@ -40,7 +46,7 @@ class BRDExportService:
             rules_result,
             flows_result,
             constraints_result,
-            nfrs_result,
+            out_of_scope_result,
         ) = await asyncio.gather(
             self.db.get(Project, project_id),
             self.db.execute(
@@ -63,13 +69,20 @@ class BRDExportService:
             self.db.execute(
                 select(ProjectFlow)
                 .where(ProjectFlow.project_id == project_id)
-                .options(selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor))
+                .options(
+                    selectinload(ProjectFlow.actions)
+                    .selectinload(ProjectFlowAction.actor),
+                    selectinload(ProjectFlow.actions)
+                    .selectinload(ProjectFlowAction.rules),
+                )
             ),
             self.db.execute(
                 select(ProjectConstraint).where(ProjectConstraint.project_id == project_id).order_by(ProjectConstraint.created_at)
             ),
             self.db.execute(
-                select(NFR).where(NFR.project_id == project_id).order_by(NFR.created_at)
+                select(ProjectOutOfScope)
+                .where(ProjectOutOfScope.project_id == project_id)
+                .order_by(ProjectOutOfScope.order)
             ),
         )
 
@@ -82,7 +95,7 @@ class BRDExportService:
         rules = rules_result.scalars().all()
         flows = flows_result.scalars().all()
         constraints = constraints_result.scalars().all()
-        nfrs = nfrs_result.scalars().all()
+        out_of_scope_items = out_of_scope_result.scalars().all()
 
         start = str(project.start_date) if project.start_date else "TBD"
         end = str(project.end_date) if project.end_date else "TBD"
@@ -111,9 +124,9 @@ class BRDExportService:
             for g in goals:
                 obj_lines = "\n".join(f"- {o.description}" for o in g.objectives) if g.objectives else "- _No objectives defined._"
                 goal_blocks.append(
-                    f"### {g.description} `[{g.priority.value}]`\n"
+                    f"### {g.description}\n"
                     f"- **Success Metric:** {_or_na(g.success_metric)}\n"
-                    f"- **Target Date:** {_or_na(g.target_date)}\n\n"
+                    f"- **Target Date:** {_or_na(g.target_date)} | **Priority:** {g.priority.value}\n\n"
                     f"**Objectives:**\n{obj_lines}"
                 )
             sections.append("## 2. Business Goals & Objectives\n\n" + "\n\n".join(goal_blocks))
@@ -156,7 +169,7 @@ class BRDExportService:
             }
             for rtype, label in type_labels.items():
                 if rtype in grouped:
-                    items = "\n".join(f"- {r.rule_def}" for r in grouped[rtype])
+                    items = "\n".join(f"- `{r.code}` {r.rule_def}" for r in sorted(grouped[rtype], key=lambda r: r.code))
                     rule_blocks.append(f"### {label}\n{items}")
             sections.append("## 5. Business Rules\n\n" + "\n\n".join(rule_blocks))
         else:
@@ -169,14 +182,15 @@ class BRDExportService:
                 desc = f"\n{f.description}" if f.description else ""
                 if f.actions:
                     sorted_actions = sorted(f.actions, key=lambda a: a.order)
-                    rows = ["| Step | Action | Actor |", "|------|--------|-------|"]
+                    rows = ["| Step | Action | Actor | Business Rules |", "|------|--------|-------|----------------|"]
                     for i, a in enumerate(sorted_actions, 1):
                         actor_name = a.actor.name if a.actor else "—"
-                        rows.append(f"| {i} | {a.description} | {actor_name} |")
+                        br_codes = ", ".join(r.code for r in sorted(a.rules, key=lambda r: r.code)) if a.rules else "—"
+                        rows.append(f"| {i} | {a.description} | {actor_name} | {br_codes} |")
                     action_table = "\n".join(rows)
                 else:
                     action_table = "_No actions defined._"
-                flow_blocks.append(f"### {f.name}{desc}\n\n{action_table}")
+                flow_blocks.append(f"### [{f.code}] {f.name}{desc}\n\n{action_table}")
             sections.append("## 6. Business Flows\n\n" + "\n\n".join(flow_blocks))
         else:
             sections.append("## 6. Business Flows\n\n_No business flows defined._")
@@ -190,13 +204,14 @@ class BRDExportService:
         else:
             sections.append("## 7. Constraints\n\n_No constraints defined._")
 
-        # 8. User Requirements (NFRs)
-        if nfrs:
-            rows = ["| Category | Priority | Description |", "|----------|----------|-------------|"]
-            for n in nfrs:
-                rows.append(f"| {n.category.value} | {n.priority.value} | {n.description} |")
-            sections.append("## 8. User Requirements (NFRs)\n\n" + "\n".join(rows))
+        # 8. Out of Scope
+        if out_of_scope_items:
+            rows = ["| # | Category | Description |", "|---|----------|-------------|"]
+            for i, item in enumerate(out_of_scope_items, 1):
+                cat = item.category.value if item.category else "—"
+                rows.append(f"| {i} | {cat} | {item.description} |")
+            sections.append("## 8. Out of Scope\n\n" + "\n".join(rows))
         else:
-            sections.append("## 8. User Requirements (NFRs)\n\n_No non-functional requirements defined._")
+            sections.append("## 8. Out of Scope\n\n_No out-of-scope items defined._")
 
-        return "\n\n---\n\n".join(sections)
+        return BRDResponse(markdown="\n\n---\n\n".join(sections))

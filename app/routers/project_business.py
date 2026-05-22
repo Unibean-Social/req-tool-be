@@ -15,6 +15,7 @@ from app.models.nfr import NFR
 from app.models.project_business import (
     ConstraintSeverity,
     ConstraintType,
+    OutOfScopeCategory,
     ProjectConstraint,
     ProjectFlow,
     ProjectFlowAction,
@@ -25,6 +26,9 @@ from app.models.stakeholder import Stakeholder
 from app.models.user import User
 from app.schemas.project_business import (
     FlowTemplateResponse,
+    OutOfScopeCreate,
+    OutOfScopeResponse,
+    OutOfScopeUpdate,
     ProjectBusinessRequirementCreate,
     ProjectBusinessRequirementResponse,
     ProjectBusinessRequirementUpdate,
@@ -47,7 +51,7 @@ from app.schemas.project_business import (
     SwimlaneRequest,
 )
 from app.schemas.response import ApiResponse
-from app.services.brd_export_service import BRDExportService
+from app.services.brd_export_service import BRDExportService, BRDResponse
 from app.services.project_business_service import ProjectBusinessService
 
 router = APIRouter(prefix="/projects/{project_id}")
@@ -358,6 +362,53 @@ async def delete_business_requirement(
     await service.delete_business_requirement(project_id, br_id)
 
 
+# ── Out of Scope ──────────────────────────────────────────────────────────────
+
+@router.post("/out-of-scope", response_model=ApiResponse[OutOfScopeResponse], tags=["Out of Scope"])
+async def upsert_out_of_scope(
+    project_id: uuid.UUID,
+    body: OutOfScopeCreate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.upsert_out_of_scope(project_id, body))
+
+
+@router.get("/out-of-scope", response_model=ApiResponse[list[OutOfScopeResponse]], tags=["Out of Scope"])
+async def list_out_of_scope(
+    project_id: uuid.UUID,
+    category: OutOfScopeCategory | None = Query(None),
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.list_out_of_scope(project_id, category))
+
+
+@router.patch("/out-of-scope/{item_id}", response_model=ApiResponse[OutOfScopeResponse], tags=["Out of Scope"])
+async def update_out_of_scope(
+    project_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: OutOfScopeUpdate,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    return ok(await service.update_out_of_scope(project_id, item_id, body))
+
+
+@router.delete("/out-of-scope/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Out of Scope"])
+async def delete_out_of_scope(
+    project_id: uuid.UUID,
+    item_id: uuid.UUID,
+    user: User = Depends(current_user),
+    service: ProjectBusinessService = Depends(get_project_business_service),
+):
+    await require_project_access(project_id, user, service.db)
+    await service.delete_out_of_scope(project_id, item_id)
+
+
 # ── Setup Progress ────────────────────────────────────────────────────────────
 
 @router.get("/setup-progress", tags=["Project Setup"])
@@ -412,20 +463,14 @@ async def get_setup_progress(
 
 # ── BRD Export ────────────────────────────────────────────────────────────────
 
-@router.get("/brd/export", tags=["BRD"])
-async def export_brd(
+@router.get("/brd", response_model=ApiResponse[BRDResponse], tags=["BRD"])
+async def get_brd(
     project_id: uuid.UUID,
     user: User = Depends(current_user),
     service: BRDExportService = Depends(get_brd_export_service),
 ):
     await require_project_access(project_id, user, service.db)
-    from fastapi.responses import Response
-    md = await service.generate(project_id)
-    return Response(
-        content=md,
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="brd-{project_id}.md"'},
-    )
+    return ok(await service.generate(project_id))
 
 
 @router.get("/staleness-warnings", response_model=ApiResponse[list[StalenessWarningItem]], tags=["Project Setup"])

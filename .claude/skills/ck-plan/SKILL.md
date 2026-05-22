@@ -1,17 +1,19 @@
 ---
 name: ck:plan
-description: Plan a feature or system before implementation. Use when the user says "plan this", "I want to build X", "how do I implement Y", or when /ck:brainstorm produces a spec.md. Always run before /ck:cook. Auto-detects --fast (simple, single-file) vs --hard (multi-file, novel domain, security-sensitive). Flags --no-test and --tdd propagate into the cook pipeline. Use --archive to archive a completed plan into plans/archive/.
+description: Plan a feature or system before implementation. Use when the user says "plan this", "I want to build X", "how do I implement Y", or when /ck:brainstorm produces a spec.md. Always run before /ck:cook. Modes (pick one): --fast (simple, single-file), --hard (research + red-team + validate), --archive (archive completed plan). Composable flags (any mode): --no-test, --tdd — propagate into the cook pipeline.
 user-invocable: true
 ---
 
 # ck:plan — Structured Planning Pipeline
 
-Modes (default = Hard if ≥ 3 components, else Fast):
+Modes — mutually exclusive, pick one (default = Hard if ≥ 3 components, else Fast):
 - **`--fast`** — skip research + red-team; planner only
 - **`--hard`** — research (×2 parallel) + red-team review
-- **`--no-test`** — propagates to cook: skip tester
-- **`--tdd`** — propagates to cook: write failing tests before implementing
 - **`--archive <plan-path>`** — archive a completed plan; skip all planning steps
+
+Composable flags — combine with any mode (except `--archive`):
+- **`--no-test`** — propagated to cook: skip tester
+- **`--tdd`** — propagated to cook: tests-first per phase
 
 ---
 
@@ -49,7 +51,7 @@ If `--archive` flag present:
 # Test:  [default | --no-test | --tdd]
 ```
 
-Mode auto-detection (override with explicit flag):
+Mode auto-detection (override with explicit mode flag):
 - **Fast** — single-file change, familiar pattern, ≤ 2 components
 - **Hard** — multi-file, unfamiliar domain, security-sensitive, or ≥ 3 phases
 

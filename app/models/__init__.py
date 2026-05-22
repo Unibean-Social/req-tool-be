@@ -24,6 +24,7 @@ from app.models.project_business import (
     ProjectConstraint,
     ProjectGoalObjective,
     ProjectBusinessRequirement,
+    ProjectOutOfScope,
 )
 
 __all__ = [
@@ -54,4 +55,5 @@ __all__ = [
     "ProjectConstraint",
     "ProjectGoalObjective",
     "ProjectBusinessRequirement",
+    "ProjectOutOfScope",
 ]

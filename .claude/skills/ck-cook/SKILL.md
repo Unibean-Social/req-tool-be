@@ -1,14 +1,17 @@
 ---
 name: ck:cook
-description: Implement a planned feature phase by phase. Use when the user says "cook this", "implement it", "let's build", "start coding", or passes a plan.md path. Spec-aware — auto-loads spec.md alongside plan for SDD+TDD. Modes: --fast (skip test/review), --hard (mandatory human approval). Flags: --no-test (skip tester), --tdd (write failing tests before implementing).
+description: Implement a planned feature phase by phase. Use when the user says "cook this", "implement it", "let's build", "start coding", or passes a plan.md path. Spec-aware — auto-loads spec.md alongside plan for SDD+TDD. Modes (pick one): --fast (skip test/review), --hard (mandatory human approval). Composable flags (combine with any mode): --no-test (skip tester), --tdd (write failing tests before implementing).
 user-invocable: true
 ---
 
 # ck:cook — Structured Implementation Pipeline
 
-Modes (default = Standard: test + review, auto-approve if score ≥ 9.5 with 0 CRITICAL):
+Modes — mutually exclusive, pick one (default = Standard):
+- **Standard** — test + review, auto-approve if score ≥ 9.5 with 0 CRITICAL
 - **`--fast`** — skip tester and code-reviewer; git-manager only in Step 5
 - **`--hard`** — mandatory test + mandatory review, no auto-approve
+
+Composable flags — combine with any mode:
 - **`--no-test`** — skip tester; go directly to Step 3.S → Step 4
 - **`--tdd`** — write failing tests first, then implement until they pass
 

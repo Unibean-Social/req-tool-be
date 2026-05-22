@@ -4,18 +4,21 @@ import hashlib
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.models.project import Project
 from app.models.project_business import (
+    OutOfScopeCategory,
     ProjectBusinessRequirement,
     ProjectConstraint,
     ProjectFlow,
     ProjectFlowAction,
     ProjectGoal,
     ProjectGoalObjective,
+    ProjectOutOfScope,
     ProjectRule,
 )
 from app.models.stakeholder import Stakeholder
@@ -31,6 +34,9 @@ from app.utils.swimlane import (
 
 _DEFAULT_LANE = "lane-default"
 from app.schemas.project_business import (
+    OutOfScopeCreate,
+    OutOfScopeResponse,
+    OutOfScopeUpdate,
     ProjectBusinessRequirementCreate,
     ProjectBusinessRequirementResponse,
     ProjectBusinessRequirementUpdate,
@@ -171,7 +177,8 @@ class ProjectBusinessService:
             select(ProjectFlow)
             .where(ProjectFlow.project_id == project_id, ProjectFlow.id == flow_id)
             .options(
-                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor)
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.actor),
+                selectinload(ProjectFlow.actions).selectinload(ProjectFlowAction.rules),
             )
             .order_by(ProjectFlow.code)
         )
@@ -190,6 +197,7 @@ class ProjectBusinessService:
                     step=action.order + 1,
                     description=action.description,
                     actor=actor_name,
+                    rules=[r.rule_def for r in action.rules],
                 ))
             actors = [
                 FlowTemplateActorResponse(id=aid, name=name)
@@ -343,6 +351,7 @@ class ProjectBusinessService:
                 existing_cache[entry["id"]] = entry
 
         actions_with_notation: list[dict] = []
+        all_cached = True
         for action in sorted_actions:
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
             actor_name = action.actor.name if action.actor else None
@@ -367,6 +376,7 @@ class ProjectBusinessService:
                 else:
                     action_entry["label"] = cached.get("label")
             else:
+                all_cached = False
                 bedrock_kwargs = dict(
                     access_key=settings.aws_access_key_id,
                     secret_key=settings.aws_secret_access_key,
@@ -411,8 +421,8 @@ class ProjectBusinessService:
         # Stage 5a: rule-based conflict fix (always runs — no external deps)
         layout = fix_layout(layout)
 
-        # Stage 5b: Bedrock AI position optimizer (only when AWS keys present)
-        if settings.aws_access_key_id and settings.aws_secret_access_key:
+        # Stage 5b: Bedrock AI position optimizer
+        if not all_cached and settings.aws_access_key_id and settings.aws_secret_access_key:
             layout = await review_positions(
                 layout,
                 access_key=settings.aws_access_key_id,
@@ -536,8 +546,14 @@ class ProjectBusinessService:
     # ── Rules ────────────────────────────────────────────────────────────────
 
     async def create_rule(self, project_id: uuid.UUID, body: ProjectRuleCreate) -> ProjectRuleResponse:
+        await self.db.execute(select(Project).where(Project.id == project_id).with_for_update())
+        max_n = await self.db.scalar(
+            select(func.max(cast(func.substr(ProjectRule.code, 4), Integer)))
+            .where(ProjectRule.project_id == project_id)
+        )
         obj = ProjectRule(
             project_id=project_id,
+            code=f"BR-{(max_n or 0) + 1:03d}",
             rule_def=body.rule_def,
             type=body.type,
             is_dynamic=body.is_dynamic,
@@ -545,6 +561,7 @@ class ProjectBusinessService:
         )
         self.db.add(obj)
         await self.db.flush()
+        await self.db.refresh(obj)
         return ProjectRuleResponse.model_validate(obj)
 
     async def list_rules(self, project_id: uuid.UUID) -> list[ProjectRuleResponse]:
@@ -603,12 +620,8 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy constraint")
-        if body.type is not None:
-            obj.type = body.type
-        if body.description is not None:
-            obj.description = body.description
-        if body.severity is not None:
-            obj.severity = body.severity
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
         return ProjectConstraintResponse.model_validate(obj)
 
     async def delete_constraint(self, project_id: uuid.UUID, constraint_id: uuid.UUID) -> None:
@@ -664,4 +677,60 @@ class ProjectBusinessService:
         obj = result.scalar_one_or_none()
         if not obj:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy business requirement")
+        await self.db.delete(obj)
+
+    # ── Out of Scope ──────────────────────────────────────────────────────────
+
+    async def upsert_out_of_scope(self, project_id: uuid.UUID, body: OutOfScopeCreate) -> OutOfScopeResponse:
+        if body.id is not None:
+            result = await self.db.execute(
+                select(ProjectOutOfScope).where(
+                    ProjectOutOfScope.id == body.id,
+                    ProjectOutOfScope.project_id == project_id,
+                )
+            )
+            obj = result.scalar_one_or_none()
+            if not obj:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
+            for field, value in body.model_dump(exclude={"id"}, exclude_unset=True).items():
+                setattr(obj, field, value)
+        else:
+            obj = ProjectOutOfScope(
+                project_id=project_id,
+                description=body.description,
+                category=body.category,
+                order=body.order,
+            )
+            self.db.add(obj)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return OutOfScopeResponse.model_validate(obj)
+
+    async def list_out_of_scope(self, project_id: uuid.UUID, category: OutOfScopeCategory | None = None) -> list[OutOfScopeResponse]:
+        q = select(ProjectOutOfScope).where(ProjectOutOfScope.project_id == project_id)
+        if category is not None:
+            q = q.where(ProjectOutOfScope.category == category)
+        result = await self.db.execute(q.order_by(ProjectOutOfScope.order))
+        return [OutOfScopeResponse.model_validate(o) for o in result.scalars().all()]
+
+    async def update_out_of_scope(self, project_id: uuid.UUID, item_id: uuid.UUID, body: OutOfScopeUpdate) -> OutOfScopeResponse:
+        result = await self.db.execute(
+            select(ProjectOutOfScope).where(ProjectOutOfScope.id == item_id, ProjectOutOfScope.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
+        await self.db.flush()
+        await self.db.refresh(obj)
+        return OutOfScopeResponse.model_validate(obj)
+
+    async def delete_out_of_scope(self, project_id: uuid.UUID, item_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(ProjectOutOfScope).where(ProjectOutOfScope.id == item_id, ProjectOutOfScope.project_id == project_id)
+        )
+        obj = result.scalar_one_or_none()
+        if not obj:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy out-of-scope item")
         await self.db.delete(obj)
