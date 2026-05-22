@@ -184,7 +184,7 @@ class BRDExportService:
                     action_table = "\n".join(rows)
                 else:
                     action_table = "_No actions defined._"
-                flow_blocks.append(f"### {f.name}{desc}\n\n{action_table}")
+                flow_blocks.append(f"### [{f.code}] {f.name}{desc}\n\n{action_table}")
             sections.append("## 6. Business Flows\n\n" + "\n\n".join(flow_blocks))
         else:
             sections.append("## 6. Business Flows\n\n_No business flows defined._")
