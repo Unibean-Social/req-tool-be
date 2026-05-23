@@ -26,7 +26,7 @@ from app.models.project_business import (
     ProjectRule,
     RuleType,
 )
-from app.models.stakeholder import Stakeholder
+from app.models.stakeholder import ActorType, Stakeholder
 
 
 def _or_na(value) -> str:
@@ -162,7 +162,7 @@ class BRDExportService:
         if stakeholders:
             rows = ["| Name | Role | Type |", "|------|------|------|"]
             for s in stakeholders:
-                stype = "Business Actor" if s.is_business_actor else "Stakeholder"
+                stype = s.actor_type.value.replace("_", " ").title() if s.actor_type != ActorType.none else "Stakeholder"
                 rows.append(f"| {s.name} | {_or_na(s.role)} | {stype} |")
             sections.append("## 4. Stakeholders\n\n" + "\n".join(rows))
         else:

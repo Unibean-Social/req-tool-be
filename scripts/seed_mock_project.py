@@ -32,7 +32,7 @@ from app.models.project_business import (
     GoalPriority, ConstraintType, ConstraintSeverity, RuleType,
     project_flow_action_rules,
 )
-from app.models.stakeholder import Stakeholder, InfluenceLevel
+from app.models.stakeholder import ActorType, InfluenceLevel, Stakeholder
 from app.models.actor import Actor
 from app.models.nfr import NFR, NFRCategory
 from app.models.requirements import (
@@ -132,31 +132,31 @@ async def seed():
         sh_pm = Stakeholder(
             project_id=pid, name="Nguyễn Minh Tuấn", role="Project Manager",
             impact_area="Toàn dự án — lập kế hoạch, quản lý rủi ro",
-            influence_level=InfluenceLevel.high, is_business_actor=False,
+            influence_level=InfluenceLevel.high,
             notes="Người phê duyệt ngân sách chính, cần báo cáo tiến độ tuần",
         )
         sh_po = Stakeholder(
             project_id=pid, name="Trần Thị Lan", role="Product Owner / Trưởng phòng Mua hàng",
             impact_area="Nghiệp vụ đặt hàng và duyệt chi",
-            influence_level=InfluenceLevel.high, is_business_actor=True,
+            influence_level=InfluenceLevel.high, actor_type=ActorType.business_actor,
             notes="Người xác nhận nghiệp vụ, tham gia UAT sprint 3",
         )
         sh_wh = Stakeholder(
             project_id=pid, name="Lê Văn Hùng", role="Trưởng kho",
             impact_area="Quy trình nhận hàng, xuất hàng và kiểm kê",
-            influence_level=InfluenceLevel.medium, is_business_actor=True,
+            influence_level=InfluenceLevel.medium, actor_type=ActorType.business_actor,
             notes="Cần đào tạo UX do ít kinh nghiệm với web app",
         )
         sh_acc = Stakeholder(
             project_id=pid, name="Phạm Thị Hoa", role="Kế toán trưởng",
             impact_area="Tích hợp ERP, xuất hóa đơn, báo cáo tài chính",
-            influence_level=InfluenceLevel.high, is_business_actor=True,
+            influence_level=InfluenceLevel.high, actor_type=ActorType.business_actor,
             notes="Yêu cầu audit log đầy đủ theo tiêu chuẩn ISO 27001",
         )
         sh_it = Stakeholder(
             project_id=pid, name="Đỗ Quang Minh", role="IT Infrastructure Lead",
             impact_area="Hạ tầng triển khai, bảo mật, tích hợp ERP",
-            influence_level=InfluenceLevel.medium, is_business_actor=False,
+            influence_level=InfluenceLevel.medium,
             notes="Phụ trách review kiến trúc và go-live checklist",
         )
         session.add_all([sh_pm, sh_po, sh_wh, sh_acc, sh_it])

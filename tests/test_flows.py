@@ -46,10 +46,10 @@ async def create_rule(client, h, pid, rule_def="Users must be 18+", rtype="const
     return r.json()["data"]
 
 
-async def create_stakeholder(client, h, pid, name="Alice", is_business_actor=False):
+async def create_stakeholder(client, h, pid, name="Alice", actor_type="none"):
     r = await client.post(
         f"{BASE}/projects/{pid}/stakeholders",
-        json={"name": name, "is_business_actor": is_business_actor},
+        json={"name": name, "actor_type": actor_type},
         headers=h,
     )
     assert r.status_code == 201, r.text
@@ -138,7 +138,7 @@ async def test_create_flow_action_minimal(client):
 async def test_create_flow_action_with_actor(client):
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
-    stakeholder = await create_stakeholder(client, h, pid, name="System", is_business_actor=True)
+    stakeholder = await create_stakeholder(client, h, pid, name="System", actor_type="business_actor")
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
@@ -385,7 +385,7 @@ async def test_flow_action_with_business_actor_stakeholder(client):
     """FlowAction actor_id should link to a business-actor stakeholder."""
     h, pid = await _setup(client)
     flow = await create_flow(client, h, pid)
-    ba = await create_stakeholder(client, h, pid, name="Finance Dept", is_business_actor=True)
+    ba = await create_stakeholder(client, h, pid, name="Finance Dept", actor_type="business_actor")
 
     r = await client.post(
         f"{BASE}/projects/{pid}/flows/{flow['id']}/actions",
