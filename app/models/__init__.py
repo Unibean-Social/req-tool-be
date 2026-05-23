@@ -16,6 +16,7 @@ from app.models.sync import GithubItem, SyncLog, SyncQueue
 from app.models.stakeholder import Stakeholder
 from app.models.nfr import NFR, nfr_feature_links
 from app.models.story_estimate import StoryEstimate
+from app.models.context_diagram import ProjectContextDiagram
 from app.models.project_business import (
     ProjectGoal,
     ProjectFlow,
@@ -56,4 +57,5 @@ __all__ = [
     "ProjectGoalObjective",
     "ProjectBusinessRequirement",
     "ProjectOutOfScope",
+    "ProjectContextDiagram",
 ]

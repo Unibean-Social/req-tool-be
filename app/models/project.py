@@ -40,3 +40,4 @@ class Project(AuditMixin, Base):
     constraints: Mapped[list["ProjectConstraint"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)  # noqa: F821
     business_requirements: Mapped[list["ProjectBusinessRequirement"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)  # noqa: F821
     out_of_scope_items: Mapped[list["ProjectOutOfScope"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True, order_by="ProjectOutOfScope.order")  # noqa: F821
+    context_diagram: Mapped["ProjectContextDiagram | None"] = relationship(back_populates="project", uselist=False, cascade="all, delete-orphan", passive_deletes=True)  # noqa: F821
