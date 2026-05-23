@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from app.models.stakeholder import InfluenceLevel
+from app.models.stakeholder import ActorType, InfluenceLevel
 
 
 class StakeholderCreateRequest(BaseModel):
@@ -12,7 +12,8 @@ class StakeholderCreateRequest(BaseModel):
     impact_area: str | None = None
     influence_level: InfluenceLevel = InfluenceLevel.medium
     notes: str | None = None
-    is_business_actor: bool = False
+    actor_type: ActorType = ActorType.none
+    system_description: str | None = None
 
 
 class StakeholderUpdateRequest(BaseModel):
@@ -21,11 +22,12 @@ class StakeholderUpdateRequest(BaseModel):
     impact_area: str | None = None
     influence_level: InfluenceLevel | None = None
     notes: str | None = None
-    is_business_actor: bool | None = None
+    actor_type: ActorType | None = None
+    system_description: str | None = None
 
 
 class StakeholderResponse(BaseModel):
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     project_id: uuid.UUID
@@ -34,6 +36,7 @@ class StakeholderResponse(BaseModel):
     impact_area: str | None
     influence_level: InfluenceLevel
     notes: str | None
-    is_business_actor: bool
+    actor_type: ActorType
+    system_description: str | None
     created_at: datetime
     updated_at: datetime

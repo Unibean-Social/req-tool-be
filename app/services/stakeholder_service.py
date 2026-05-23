@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.stakeholder import Stakeholder
+from app.models.stakeholder import ActorType, Stakeholder
 from app.schemas.stakeholder import StakeholderCreateRequest, StakeholderResponse, StakeholderUpdateRequest
 
 
@@ -29,23 +29,19 @@ class StakeholderService:
     async def create(self, project_id: uuid.UUID, body: StakeholderCreateRequest) -> StakeholderResponse:
         obj = Stakeholder(
             project_id=project_id,
-            name=body.name,
-            role=body.role,
-            impact_area=body.impact_area,
-            influence_level=body.influence_level,
-            notes=body.notes,
-            is_business_actor=body.is_business_actor,
+            **body.model_dump(),
         )
         self.db.add(obj)
         await self.db.flush()
+        await self.db.refresh(obj)
         return StakeholderResponse.model_validate(obj)
 
     async def list(
-        self, project_id: uuid.UUID, is_business_actor: bool | None = None
+        self, project_id: uuid.UUID, actor_types: list[ActorType] | None = None
     ) -> list[StakeholderResponse]:
         q = select(Stakeholder).where(Stakeholder.project_id == project_id)
-        if is_business_actor is not None:
-            q = q.where(Stakeholder.is_business_actor == is_business_actor)
+        if actor_types:
+            q = q.where(Stakeholder.actor_type.in_(actor_types))
         result = await self.db.execute(q.order_by(Stakeholder.created_at))
         return [StakeholderResponse.model_validate(s) for s in result.scalars().all()]
 
@@ -56,18 +52,10 @@ class StakeholderService:
         self, project_id: uuid.UUID, stakeholder_id: uuid.UUID, body: StakeholderUpdateRequest
     ) -> StakeholderResponse:
         obj = await self._get(project_id, stakeholder_id)
-        if body.name is not None:
-            obj.name = body.name
-        if body.role is not None:
-            obj.role = body.role
-        if body.impact_area is not None:
-            obj.impact_area = body.impact_area
-        if body.influence_level is not None:
-            obj.influence_level = body.influence_level
-        if body.notes is not None:
-            obj.notes = body.notes
-        if body.is_business_actor is not None:
-            obj.is_business_actor = body.is_business_actor
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
+        await self.db.flush()
+        await self.db.refresh(obj)
         return StakeholderResponse.model_validate(obj)
 
     async def delete(self, project_id: uuid.UUID, stakeholder_id: uuid.UUID) -> None:
