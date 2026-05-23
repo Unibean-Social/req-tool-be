@@ -355,21 +355,25 @@ class ProjectBusinessService:
         for action in sorted_actions:
             lane_id = f"lane-{action.actor_id}" if action.actor_id else _DEFAULT_LANE
             actor_name = action.actor.name if action.actor else None
+            # actor_name included: Bedrock prompts inject it, so a rename must bust the cache
             desc_hash = hashlib.md5(
-                f"{action.description or ''}|{action.actor_id or ''}".encode()
+                f"{action.description or ''}\x00{action.actor_id or ''}\x00{actor_name or ''}".encode()
             ).hexdigest()
             cached = existing_cache.get(str(action.id), {})
+            # Use .get() so a malformed entry (missing "notation") falls through to miss
+            cached_notation = cached.get("notation") if cached.get("_desc_hash") == desc_hash else None
 
-            if cached.get("_desc_hash") == desc_hash:
-                notation = cached["notation"]
-                action_entry: dict = {
-                    "id": str(action.id),
-                    "lane_id": lane_id,
-                    "notation": notation,
-                    "order": action.order,
-                    "_desc_hash": desc_hash,
-                }
-                if notation == "decision":
+            action_entry: dict = {
+                "id": str(action.id),
+                "lane_id": lane_id,
+                "notation": cached_notation,  # filled below either path
+                "order": action.order,
+                "_desc_hash": desc_hash,
+            }
+
+            if cached_notation is not None:
+                action_entry["notation"] = cached_notation
+                if cached_notation == "decision":
                     action_entry["yes_guard"] = cached.get("yes_guard")
                     action_entry["no_guard"] = cached.get("no_guard")
                     action_entry["label"] = None
@@ -383,20 +387,8 @@ class ProjectBusinessService:
                     region=settings.aws_region,
                     model_id=settings.bedrock_notation_model,
                 )
-                notation = await detect_notation(
-                    action.description or "",
-                    access_key=settings.aws_access_key_id,
-                    secret_key=settings.aws_secret_access_key,
-                    region=settings.aws_region,
-                    model_id=settings.bedrock_notation_model,
-                )
-                action_entry = {
-                    "id": str(action.id),
-                    "lane_id": lane_id,
-                    "notation": notation,
-                    "order": action.order,
-                    "_desc_hash": desc_hash,
-                }
+                notation = await detect_notation(action.description or "", **bedrock_kwargs)
+                action_entry["notation"] = notation
                 if notation == "decision":
                     yes_g, no_g = await normalize_decision_guards(
                         action.description or "",
@@ -436,6 +428,12 @@ class ProjectBusinessService:
         # Restore lane titles from seen map
         for lane in swimlane["lanes"]:
             lane["title"] = seen.get(lane["id"], lane["id"])
+        # Re-inject _desc_hash: layout serialization drops it (NodeLayout has no such field),
+        # but it must persist so the next call can match cached entries and skip Bedrock.
+        hash_map = {a["id"]: a["_desc_hash"] for a in actions_with_notation}
+        for entry in swimlane.get("actions", []):
+            if entry["id"] in hash_map:
+                entry["_desc_hash"] = hash_map[entry["id"]]
         flow.swimlane = swimlane
 
     async def _validate_actor_in_project(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> None:
