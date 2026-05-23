@@ -112,10 +112,25 @@ class BRDExportService:
             f"**Exported:** {today}"
         )
 
-        # 1. Executive Summary
+        # 1. Project Overview
+        problems_lines = (
+            "\n".join(f"- {p}" for p in project.problems)
+            if project.problems
+            else "- _N/A_"
+        )
+        solutions_lines = (
+            "\n".join(f"- {s}" for s in project.proposed_solutions)
+            if project.proposed_solutions
+            else "- _N/A_"
+        )
         sections.append(
-            f"## 1. Executive Summary\n"
-            f"{project.executive_summary or '_N/A_'}"
+            f"## 1. Project Overview\n\n"
+            f"**Executive Summary:**\n{project.executive_summary or '_N/A_'}\n\n"
+            f"**Description:**\n{project.description or '_N/A_'}\n\n"
+            f"**Context:**\n{project.context or '_N/A_'}\n\n"
+            f"**Problems:**\n{problems_lines}\n\n"
+            f"**Proposed Solutions:**\n{solutions_lines}\n\n"
+            f"**Business Purpose (ROI):**\n{project.roi_notes or '_N/A_'}"
         )
 
         # 2. Business Goals & Objectives
