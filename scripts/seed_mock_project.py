@@ -38,7 +38,7 @@ from app.models.stakeholder import ActorType, InfluenceLevel, Stakeholder
 from app.models.actor import Actor
 from app.models.nfr import NFR, NFRCategory
 from app.models.requirements import Priority
-from app.utils.swimlane import calculate_layout, layout_to_swimlane_dict, review_positions
+from app.utils.activity.layout import calculate_layout, layout_to_activity_dict, review_positions
 from app.config import settings
 
 
@@ -491,7 +491,7 @@ async def seed():
             region=settings.aws_region,
             model_id=settings.bedrock_notation_model,
         )
-        flow1.swimlane = layout_to_swimlane_dict(layout1, str(flow1.id), flow1.name)
+        flow1.swimlane = layout_to_activity_dict(layout1, str(flow1.id), flow1.name)
         for lane in flow1.swimlane["lanes"]:
             lane["title"] = f1_lane_titles.get(lane["id"], lane["id"])
 
@@ -569,7 +569,7 @@ async def seed():
             region=settings.aws_region,
             model_id=settings.bedrock_notation_model,
         )
-        flow2.swimlane = layout_to_swimlane_dict(layout2, str(flow2.id), flow2.name)
+        flow2.swimlane = layout_to_activity_dict(layout2, str(flow2.id), flow2.name)
         for lane in flow2.swimlane["lanes"]:
             lane["title"] = f2_lane_titles.get(lane["id"], lane["id"])
 
@@ -647,7 +647,7 @@ async def seed():
             region=settings.aws_region,
             model_id=settings.bedrock_notation_model,
         )
-        flow3.swimlane = layout_to_swimlane_dict(layout3, str(flow3.id), flow3.name)
+        flow3.swimlane = layout_to_activity_dict(layout3, str(flow3.id), flow3.name)
         for lane in flow3.swimlane["lanes"]:
             lane["title"] = f3_lane_titles.get(lane["id"], lane["id"])
 
