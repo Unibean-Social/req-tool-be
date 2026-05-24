@@ -5,14 +5,14 @@ Stakeholders auto-sync to the diagram when created with actor_type=business_acto
 Stakeholders auto-removed (with cascade flows) when deleted.
 
 Covers:
-- GET → 404 when no diagram, 200 after business_actor stakeholder created
+- GET → 200 with empty stakeholders/flows when no diagram exists (auto-creates); populates after business_actor stakeholder created
 - Auto-add: business_actor and other_actor stakeholders appear in diagram on create
 - Auto-skip: actor_type=none stakeholder does NOT appear in diagram
 - Auto-remove: deleting a stakeholder removes it + cascades flows from diagram
 - POST /flows → 201; 422 if source/target invalid or equal; 422 if both endpoints non-center
 - PATCH /flows/{id} → 200; 404 if not found
 - DELETE /flows/{id} → 204; 404 if not found
-- PUT /layout → 200; persisted in next GET
+- PUT /canvas-layout → 200; persisted in next GET
 - POST /sync → 404 if no diagram; adds derived flows + stakeholders; idempotent on 2nd call
 - Auth → 401 unauthenticated, 403 non-member
 """
@@ -67,10 +67,13 @@ async def _create_project_flow(client, h, pid, code="FL-01", name="Login Flow"):
 
 
 @pytest.mark.asyncio
-async def test_get_context_diagram_404_when_no_diagram(client):
+async def test_get_context_diagram_returns_empty_on_new_project(client):
     h, pid = await _setup(client)
     r = await client.get(f"{BASE}/projects/{pid}/context-diagram", headers=h)
-    assert r.status_code == 404
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["stakeholders"] == []
+    assert data["flows"] == []
 
 
 @pytest.mark.asyncio
@@ -132,12 +135,14 @@ async def test_auto_creates_diagram_on_first_actor(client):
     h, pid = await _setup(client)
 
     r_before = await client.get(f"{BASE}/projects/{pid}/context-diagram", headers=h)
-    assert r_before.status_code == 404
+    assert r_before.status_code == 200
+    assert r_before.json()["data"]["stakeholders"] == []
 
     await _create_stakeholder(client, h, pid, name="First", actor_type="business_actor")
 
     r_after = await client.get(f"{BASE}/projects/{pid}/context-diagram", headers=h)
     assert r_after.status_code == 200
+    assert len(r_after.json()["data"]["stakeholders"]) == 1
 
 
 # ── Auto-sync: stakeholder delete ─────────────────────────────────────────────
@@ -321,7 +326,7 @@ async def test_delete_flow_404_not_found(client):
     assert r.status_code == 404
 
 
-# ── PUT /layout ────────────────────────────────────────────────────────────────
+# ── PUT /canvas-layout ────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -330,7 +335,7 @@ async def test_save_layout_200(client):
     s = await _create_stakeholder(client, h, pid, name="LayoutNode")
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/context-diagram/layout",
+        f"{BASE}/projects/{pid}/context-diagram/canvas-layout",
         json={
             "nodes": [
                 {"id": "center", "position": {"x": 400, "y": 300}},
@@ -350,7 +355,7 @@ async def test_save_layout_persisted_in_get(client):
     s = await _create_stakeholder(client, h, pid, name="PersistedNode")
 
     await client.put(
-        f"{BASE}/projects/{pid}/context-diagram/layout",
+        f"{BASE}/projects/{pid}/context-diagram/canvas-layout",
         json={
             "nodes": [
                 {"id": "center", "position": {"x": 500, "y": 500}},
@@ -381,7 +386,7 @@ async def test_sync_404_if_no_diagram(client):
 
 
 @pytest.mark.asyncio
-async def test_sync_no_op_when_no_flow_actions(client):
+async def test_sync_creates_default_edge_for_unconnected_stakeholder(client):
     h, pid = await _setup(client)
     await _create_stakeholder(client, h, pid, name="InitialNode")
 
@@ -389,7 +394,7 @@ async def test_sync_no_op_when_no_flow_actions(client):
     assert r.status_code == 200, r.text
     data = r.json()["data"]
     assert data["added_stakeholders"] == 0
-    assert data["added_flows"] == 0
+    assert data["added_flows"] == 1
 
 
 @pytest.mark.asyncio
