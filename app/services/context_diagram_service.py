@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import uuid
 from typing import Any
 
@@ -11,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.models.context_diagram import ProjectContextDiagram
 from app.models.project import Project
 from app.models.project_business import ProjectFlow, ProjectFlowAction
-from app.models.stakeholder import Stakeholder
+from app.models.stakeholder import ActorType, Stakeholder
 from app.schemas.context_diagram import (
     ContextDiagramFlow,
     ContextDiagramResponse,
@@ -21,17 +23,9 @@ from app.schemas.context_diagram import (
     LayoutSaveRequest,
     SyncResult,
 )
+from app.utils.context.direction import classify_direction
 
 _CENTER = "center"
-
-_SYSTEM_TO_ACTOR: frozenset[str] = frozenset({
-    "notify", "return", "send", "confirm", "alert", "display",
-    "report", "export", "gửi", "thông báo", "trả về", "xác nhận",
-})
-
-
-def _classify(description: str) -> str:
-    return "system_to_actor" if set(description.lower().split()) & _SYSTEM_TO_ACTOR else "actor_to_system"
 
 
 class ContextDiagramService:
@@ -98,6 +92,22 @@ class ContextDiagramService:
         diagram, project_name = await self._load_diagram_with_project_name(project_id)
         stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
         return self._build_response(project_name, diagram, stakeholder_map)
+
+    async def _sync_typed_stakeholders(
+        self, project_id: uuid.UUID, diagram: ProjectContextDiagram
+    ) -> None:
+        existing_ids = set(diagram.stakeholder_ids)
+        result = await self.db.execute(
+            select(Stakeholder).where(
+                Stakeholder.project_id == project_id,
+                Stakeholder.actor_type.in_([ActorType.business_actor, ActorType.other_actor]),
+            )
+        )
+        missing = [str(s.id) for s in result.scalars().all() if str(s.id) not in existing_ids]
+        if missing:
+            diagram.stakeholder_ids = diagram.stakeholder_ids + missing
+            flag_modified(diagram, "stakeholder_ids")
+            await self.db.flush()
 
     async def _add_stakeholder_to_diagram(
         self, project_id: uuid.UUID, stakeholder_id: uuid.UUID
@@ -215,11 +225,25 @@ class ContextDiagramService:
         await self.db.flush()
 
     async def sync(self, project_id: uuid.UUID) -> SyncResult:
+        from app.config import settings
+
         diagram, project_name = await self._load_diagram_with_project_name(project_id)
+        await self._sync_typed_stakeholders(project_id, diagram)
+
+        existing_ids = set(diagram.stakeholder_ids)
+        existing_meta: dict[str, Any] = diagram.sync_meta or {}
+
+        bedrock_kwargs = dict(
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+            region=settings.aws_region,
+            model_id=settings.bedrock_notation_model,
+        )
 
         actions_result = await self.db.execute(
-            select(ProjectFlowAction, ProjectFlow.name)
+            select(ProjectFlowAction, ProjectFlow.name, Stakeholder.name)
             .join(ProjectFlow, ProjectFlowAction.flow_id == ProjectFlow.id)
+            .join(Stakeholder, ProjectFlowAction.actor_id == Stakeholder.id)
             .where(
                 ProjectFlow.project_id == project_id,
                 ProjectFlowAction.actor_id.isnot(None),
@@ -228,30 +252,44 @@ class ContextDiagramService:
         )
         rows = actions_result.all()
 
-        existing_ids = set(diagram.stakeholder_ids)
-        new_actor_ids: list[str] = []
-        seen_actors: set[str] = set()
-        groups: dict[tuple[str, str], str] = {}
-        for action, flow_name in rows:
+        new_meta: dict[str, Any] = dict(existing_meta)
+        seen_actors: set[str] = set(existing_ids)
+        flow_actor_ids: list[str] = []
+        uncached_rows: list[tuple[Any, str, str, str]] = []
+
+        for action, flow_name, actor_name in rows:
             aid = str(action.actor_id)
-            if aid not in existing_ids and aid not in seen_actors:
-                new_actor_ids.append(aid)
+            desc_hash = hashlib.sha256((action.description or "").encode()).hexdigest()
+            cached = existing_meta.get(str(action.id), {})
+            if cached.get("hash") != desc_hash:
+                uncached_rows.append((action, flow_name, actor_name, desc_hash))
+            if aid not in seen_actors:
+                flow_actor_ids.append(aid)
                 seen_actors.add(aid)
-            key = (aid, _classify(action.description))
+
+        if uncached_rows:
+            bedrock_results = await asyncio.gather(*[
+                classify_direction(action.description or "", actor=actor_name or "", **bedrock_kwargs)
+                for action, _, actor_name, _ in uncached_rows
+            ])
+            for (action, _, _, desc_hash), result in zip(uncached_rows, bedrock_results):
+                new_meta[str(action.id)] = {
+                    "hash": desc_hash,
+                    "direction": result["direction"],
+                    "label": result["label"],
+                }
+
+        groups: dict[tuple[str, str], str] = {}
+        for action, flow_name, _ in rows:
+            aid = str(action.actor_id)
+            entry = new_meta.get(str(action.id), {})
+            direction = entry.get("direction", "actor_to_system")
+            label = entry.get("label", flow_name)
+            key = (aid, direction)
             if key not in groups:
-                groups[key] = flow_name
+                groups[key] = label
 
-        if new_actor_ids:
-            valid_result = await self.db.execute(
-                select(Stakeholder).where(
-                    Stakeholder.id.in_([uuid.UUID(i) for i in new_actor_ids]),
-                    Stakeholder.project_id == project_id,
-                )
-            )
-            new_actor_ids = [str(s.id) for s in valid_result.scalars().all()
-                             if str(s.id) not in existing_ids]
-
-        all_valid_ids = existing_ids | set(new_actor_ids)
+        all_valid_ids = existing_ids | set(flow_actor_ids)
         existing_pairs: set[tuple[str, str]] = {
             (f.get("source", ""), f.get("target", ""))
             for f in diagram.flows
@@ -265,20 +303,25 @@ class ContextDiagramService:
                 new_flows.append({"id": str(uuid.uuid4()), "source": src, "target": tgt, "label": label})
                 existing_pairs.add((src, tgt))
 
-        if new_actor_ids:
-            diagram.stakeholder_ids = diagram.stakeholder_ids + new_actor_ids
+        if flow_actor_ids:
+            diagram.stakeholder_ids = diagram.stakeholder_ids + flow_actor_ids
             flag_modified(diagram, "stakeholder_ids")
 
         if new_flows:
             diagram.flows = diagram.flows + new_flows
             flag_modified(diagram, "flows")
 
-        if new_actor_ids or new_flows:
+        meta_changed = new_meta != existing_meta
+        if meta_changed:
+            diagram.sync_meta = new_meta
+            flag_modified(diagram, "sync_meta")
+
+        if flow_actor_ids or new_flows or meta_changed:
             await self.db.flush()
 
         stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
         return SyncResult(
-            added_stakeholders=len(new_actor_ids),
+            added_stakeholders=len(flow_actor_ids),
             added_flows=len(new_flows),
             diagram=self._build_response(project_name, diagram, stakeholder_map),
         )

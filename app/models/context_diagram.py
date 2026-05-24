@@ -22,5 +22,6 @@ class ProjectContextDiagram(AuditMixin, Base):
     stakeholder_ids: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
     flows: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
     layout: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    sync_meta: Mapped[Any | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="context_diagram")  # noqa: F821

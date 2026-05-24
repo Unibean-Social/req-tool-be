@@ -57,10 +57,20 @@ class StakeholderService:
         self, project_id: uuid.UUID, stakeholder_id: uuid.UUID, body: StakeholderUpdateRequest
     ) -> StakeholderResponse:
         obj = await self._get(project_id, stakeholder_id)
+        old_actor_type = obj.actor_type
         for field, value in body.model_dump(exclude_unset=True).items():
             setattr(obj, field, value)
         await self.db.flush()
         await self.db.refresh(obj)
+
+        if old_actor_type != obj.actor_type:
+            from app.services.context_diagram_service import ContextDiagramService
+            ctx_svc = ContextDiagramService(self.db)
+            if obj.actor_type != ActorType.none:
+                await ctx_svc._add_stakeholder_to_diagram(project_id, obj.id)
+            else:
+                await ctx_svc._remove_stakeholder_from_diagram(project_id, obj.id)
+
         return StakeholderResponse.model_validate(obj)
 
     async def delete(self, project_id: uuid.UUID, stakeholder_id: uuid.UUID) -> None:
