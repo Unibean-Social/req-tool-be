@@ -16,18 +16,19 @@ _SYSTEM_TO_ACTOR_KEYWORDS: tuple[str, ...] = (
     "notify", "return", "send", "confirm", "alert", "display",
     "report", "export", "respond", "reply", "push", "emit",
     "gửi", "thông báo", "trả về", "xác nhận", "phản hồi", "hiển thị",
+    "nhận lệnh", "nhận được", "nhận thông báo", "nhận hàng",
 )
 
 _PROMPT = """\
-You are a UML Context Diagram edge classifier. Given a use-case action step, determine the edge between the external actor and the system.
+You are a UML Context Diagram edge classifier. Given a use-case action step, determine the edge direction between the external actor and the central system.
 
 Rules:
-- "actor_to_system": the actor initiates, requests, submits, or sends something TO the system (input/request flow)
-- "system_to_actor": the system sends, notifies, returns, displays, or responds TO the actor (output/response flow)
+- "actor_to_system": the actor initiates, requests, submits, or sends something TO the system
+- "system_to_actor": the system sends, notifies, returns, or responds TO the actor; also use this when the actor RECEIVES something from the system
 
-Generate a concise 2-5 word label IN VIETNAMESE that matches the classified direction:
-- If actor_to_system: label describes what the actor sends or does (e.g. "Gửi đơn hàng", "Tải lên tệp", "Yêu cầu báo cáo")
-- If system_to_actor: label describes what the system returns or sends (e.g. "Xác nhận thanh toán", "Gửi thông báo", "Trả kết quả")
+Generate a concise 2-5 word Vietnamese label matching the classified direction:
+- actor_to_system: describe what the actor does or sends (e.g. "Gửi đơn hàng", "Tải lên tệp", "Yêu cầu báo cáo")
+- system_to_actor: describe what the system provides (e.g. "Xác nhận thanh toán", "Gửi thông báo", "Trả kết quả"){actors_hint}
 
 Return exactly two lines with no extra text:
 direction: <actor_to_system|system_to_actor>
@@ -49,9 +50,21 @@ def classify_direction_rules(description: str) -> str:
 
 
 def _invoke_bedrock(
-    text: str, actor: str, access_key: str, secret_key: str, region: str, model_id: str
+    text: str,
+    actor: str,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    model_id: str,
+    other_actors: list[str],
 ) -> DirectionResult:
     import boto3
+
+    actors_hint = (
+        f"\nOther actors in the system: {', '.join(other_actors)}"
+        if other_actors else ""
+    )
+    prompt = _PROMPT.format(text=text, actor=actor, actors_hint=actors_hint)
 
     client = boto3.client(
         "bedrock-runtime",
@@ -61,7 +74,7 @@ def _invoke_bedrock(
     )
     response = client.converse(
         modelId=model_id,
-        messages=[{"role": "user", "content": [{"text": _PROMPT.format(text=text, actor=actor)}]}],
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
         inferenceConfig={"maxTokens": 40, "temperature": 0.0},
     )
     raw = response["output"]["message"]["content"][0]["text"].strip()
@@ -83,6 +96,7 @@ def _invoke_bedrock(
 async def classify_direction(
     text: str,
     actor: str = "",
+    other_actors: list[str] | None = None,
     access_key: str = "",
     secret_key: str = "",
     region: str = "us-east-1",
@@ -96,7 +110,8 @@ async def classify_direction(
         }
     try:
         return await asyncio.to_thread(
-            _invoke_bedrock, text, actor, access_key, secret_key, region, model_id
+            _invoke_bedrock, text, actor, access_key, secret_key, region, model_id,
+            other_actors or [],
         )
     except Exception as exc:
         logger.warning("Bedrock direction classification failed (%s), using rules", type(exc).__name__)

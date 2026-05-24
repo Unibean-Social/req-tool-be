@@ -66,7 +66,9 @@ def calculate_layout(
     angle_step = (2 * math.pi / n) if n > 0 else 0
 
     center = ContextNodeLayout(
-        id="center", x=CANVAS_CX, y=CANVAS_CY,
+        id="center",
+        x=round(CANVAS_CX - CENTER_R, 1),
+        y=round(CANVAS_CY - CENTER_R, 1),
         width=CENTER_R * 2, height=CENTER_R * 2,
     )
     nodes: list[ContextNodeLayout] = []
@@ -74,8 +76,8 @@ def calculate_layout(
         angle = -math.pi / 2 + i * angle_step  # 12 o'clock start, clockwise
         nodes.append(ContextNodeLayout(
             id=sid,
-            x=round(CANVAS_CX + RADIUS * math.cos(angle), 1),
-            y=round(CANVAS_CY + RADIUS * math.sin(angle), 1),
+            x=round(CANVAS_CX + RADIUS * math.cos(angle) - STK_W / 2, 1),
+            y=round(CANVAS_CY + RADIUS * math.sin(angle) - STK_H / 2, 1),
             width=STK_W,
             height=STK_H,
             angle=angle,
@@ -90,8 +92,7 @@ def _compute_edge_offsets(
     flows: list[dict],
 ) -> list[ContextEdgeLayout]:
     """Bidirectional pairs share the same line — push their labels apart perpendicularly."""
-    node_pos: dict[str, tuple[float, float]] = {n.id: (n.x, n.y) for n in nodes}
-    node_pos["center"] = (CANVAS_CX, CANVAS_CY)
+    node_pos = _build_node_center_map(nodes)
 
     pair_flows: dict[frozenset, list[dict]] = defaultdict(list)
     for f in flows:
@@ -183,8 +184,7 @@ def _rule_based_review(layout: ContextLayout, flows: list[dict]) -> ContextLayou
 
 
 def _find_label_conflicts(layout: ContextLayout, flows: list[dict]) -> list[tuple[str, str]]:
-    node_pos: dict[str, tuple[float, float]] = {n.id: (n.x, n.y) for n in layout.nodes}
-    node_pos["center"] = (CANVAS_CX, CANVAS_CY)
+    node_pos = _build_node_center_map(layout.nodes)
     offsets = {e.id: (e.label_offset_x, e.label_offset_y) for e in layout.edges}
 
     boxes: list[tuple[str, float, float]] = []
@@ -227,8 +227,6 @@ async def _bedrock_review(
     region: str,
     model_id: str,
 ) -> ContextLayout:
-    import asyncio
-
     flow_by_actor: dict[str, list[str]] = defaultdict(list)
     for f in flows:
         src, tgt, label = f.get("source", ""), f.get("target", ""), f.get("label", "")
@@ -248,11 +246,7 @@ async def _bedrock_review(
         stakeholder_info=stakeholder_info,
     )
 
-    raw = await asyncio.to_thread(
-        _invoke_bedrock, prompt, access_key, secret_key, region, model_id
-    )
-
-    result = _extract_json(raw)
+    result = await _call_bedrock(prompt, access_key, secret_key, region, model_id)
     ordered = [sid for sid in result.get("order", []) if sid in {n.id for n in layout.nodes}]
     for n in layout.nodes:
         if n.id not in ordered:
@@ -296,6 +290,23 @@ def _extract_json(text: str) -> dict:
     return {}
 
 
+# ── Shared geometry helpers ────────────────────────────────────────────────────
+
+def _build_node_center_map(nodes: list[ContextNodeLayout]) -> dict[str, tuple[float, float]]:
+    """Top-left positions → center positions (React Flow stores top-left)."""
+    pos = {n.id: (n.x + n.width / 2, n.y + n.height / 2) for n in nodes}
+    pos["center"] = (CANVAS_CX, CANVAS_CY)
+    return pos
+
+
+async def _call_bedrock(
+    prompt: str, access_key: str, secret_key: str, region: str, model_id: str,
+) -> dict:
+    import asyncio
+    raw = await asyncio.to_thread(_invoke_bedrock, prompt, access_key, secret_key, region, model_id)
+    return _extract_json(raw)
+
+
 # ── Edge geometry: anchors + label_offset from curvature ──────────────────────
 
 def _rect_perimeter_intersect(cx: float, cy: float, half_w: float, half_h: float,
@@ -322,37 +333,39 @@ def _compute_curve_geometry(
     src_id: str, tgt_id: str, curvature: float,
     node_pos: dict[str, tuple[float, float]],
     node_size: dict[str, tuple[float, float]],
+    angular_offset: float = 0.0,
 ) -> tuple[dict, dict, dict]:
-    """Return (source_anchor, target_anchor, label_offset) for a quadratic bezier flow."""
+    """Return (source_anchor, target_anchor, label_offset) for a bezier flow.
+
+    angular_offset creates symmetric arc fan:
+      src_fan = base_angle + angular_offset
+      tgt_fan = base_angle + pi - angular_offset
+    Edges fan outward on both flanks; curvature adds bezier bow in the same direction.
+    """
     sx, sy = node_pos.get(src_id, (CANVAS_CX, CANVAS_CY))
     tx, ty = node_pos.get(tgt_id, (CANVAS_CX, CANVAS_CY))
 
-    dx, dy = tx - sx, ty - sy
-    length = math.hypot(dx, dy) or 1.0
-    perp_x, perp_y = -dy / length, dx / length  # 90° CCW unit perpendicular
-
-    bulge = curvature * EDGE_BULGE_PX
-    ctrl_x = (sx + tx) / 2 + perp_x * bulge
-    ctrl_y = (sy + ty) / 2 + perp_y * bulge
-
-    s_tan_x, s_tan_y = ctrl_x - sx, ctrl_y - sy
-    s_len = math.hypot(s_tan_x, s_tan_y) or 1.0
-    t_tan_x, t_tan_y = ctrl_x - tx, ctrl_y - ty
-    t_len = math.hypot(t_tan_x, t_tan_y) or 1.0
+    base_angle = math.atan2(ty - sy, tx - sx)
+    src_fan = base_angle + angular_offset
+    tgt_fan = base_angle + math.pi - angular_offset
 
     sw, sh = node_size.get(src_id, (STK_W, STK_H))
     tw, th = node_size.get(tgt_id, (STK_W, STK_H))
 
-    ax, ay = _node_perimeter_anchor(src_id, sx, sy, sw, sh, s_tan_x / s_len, s_tan_y / s_len)
-    bx, by = _node_perimeter_anchor(tgt_id, tx, ty, tw, th, t_tan_x / t_len, t_tan_y / t_len)
+    ax, ay = _node_perimeter_anchor(src_id, sx, sy, sw, sh, math.cos(src_fan), math.sin(src_fan))
+    bx, by = _node_perimeter_anchor(tgt_id, tx, ty, tw, th, math.cos(tgt_fan), math.sin(tgt_fan))
 
+    # Perpendicular to straight src→tgt for curvature bow direction
+    dx, dy = tx - sx, ty - sy
+    length = math.hypot(dx, dy) or 1.0
+    perp_x, perp_y = -dy / length, dx / length
+
+    # FE renders label at (sourceX + targetX)/2 + label_offset, where sourceX/targetX are
+    # the anchor world positions — so label_offset is purely the perpendicular bezier bulge.
     return (
-        {"x": round(ax, 1), "y": round(ay, 1)},
-        {"x": round(bx, 1), "y": round(by, 1)},
-        {
-            "x": round(perp_x * curvature * LABEL_BULGE_PX, 1),
-            "y": round(perp_y * curvature * LABEL_BULGE_PX, 1),
-        },
+        {"x": round(ax - sx, 1), "y": round(ay - sy, 1)},
+        {"x": round(bx - tx, 1), "y": round(by - ty, 1)},
+        {"x": round(perp_x * curvature * LABEL_BULGE_PX, 1), "y": round(perp_y * curvature * LABEL_BULGE_PX, 1)},
     )
 
 
@@ -369,11 +382,13 @@ def enrich_layout_edges(layout_dict: dict | None, flows: list[dict]) -> dict | N
     node_size: dict[str, tuple[float, float]] = {}
     for n in layout_dict.get("nodes", []):
         p = n.get("position", {})
-        node_pos[n["id"]] = (float(p.get("x", 0.0)), float(p.get("y", 0.0)))
-        node_size[n["id"]] = (
-            float(n.get("width", STK_W)),
-            float(n.get("height", STK_H)),
-        )
+        w = float(n.get("width", STK_W))
+        h = float(n.get("height", STK_H))
+        px = float(p.get("x", 0.0))
+        py = float(p.get("y", 0.0))
+        # positions are top-left (React Flow convention); convert to center for geometry
+        node_pos[n["id"]] = (px + w / 2, py + h / 2)
+        node_size[n["id"]] = (w, h)
 
     edge_by_id = {e.get("id"): dict(e) for e in layout_dict.get("edges", [])}
     enriched: list[dict] = []
@@ -386,6 +401,7 @@ def enrich_layout_edges(layout_dict: dict | None, flows: list[dict]) -> dict | N
             f.get("source", ""), f.get("target", ""),
             float(f.get("curvature", 0.0) or 0.0),
             node_pos, node_size,
+            angular_offset=float(f.get("angular_offset", 0.0) or 0.0),
         )
         edge.setdefault("waypoint", None)
         if edge.get("source_anchor") is None:
@@ -423,3 +439,170 @@ def layout_to_context_dict(layout: ContextLayout, flows: list[dict]) -> dict:
 
     layout_dict = {"nodes": nodes, "edges": [{"id": f["id"]} for f in flows if f.get("id")]}
     return enrich_layout_edges(layout_dict, flows)
+
+
+# ── Cross-pair edge overlap detection ─────────────────────────────────────────
+
+def _detect_cross_pair_overlaps(
+    nodes: list[ContextNodeLayout],
+    flows: list[dict],
+) -> list[tuple[str, str]]:
+    """Detect label-region overlaps between flows from different endpoint pairs.
+
+    Uses quadratic bezier midpoint as label proxy position.
+    """
+    node_pos = _build_node_center_map(nodes)
+
+    def _label_pos(f: dict) -> tuple[float, float]:
+        sx, sy = node_pos.get(f.get("source", ""), (CANVAS_CX, CANVAS_CY))
+        tx, ty = node_pos.get(f.get("target", ""), (CANVAS_CX, CANVAS_CY))
+        curvature = float(f.get("curvature", 0.0) or 0.0)
+        ang = float(f.get("angular_offset", 0.0) or 0.0)
+        dx, dy = tx - sx, ty - sy
+        length = math.hypot(dx, dy) or 1.0
+        perp_x, perp_y = -dy / length, dx / length
+        # angular_offset fans the anchor laterally by ~sin(θ)*avg_half_size;
+        # curvature adds bezier bulge — combine both for accurate label proxy
+        lateral = curvature * EDGE_BULGE_PX / 2 + math.sin(ang) * 100
+        return (
+            (sx + tx) / 2 + perp_x * lateral,
+            (sy + ty) / 2 + perp_y * lateral,
+        )
+
+    valid = [f for f in flows if f.get("id")]
+    pair_of = {f["id"]: frozenset([f.get("source", ""), f.get("target", "")]) for f in valid}
+    label_pos = {f["id"]: _label_pos(f) for f in valid}
+    ids = [f["id"] for f in valid]
+
+    conflicts: list[tuple[str, str]] = []
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            if pair_of.get(a) == pair_of.get(b):
+                continue
+            ax, ay = label_pos[a]
+            bx, by = label_pos[b]
+            if abs(ax - bx) < LABEL_W and abs(ay - by) < LABEL_H:
+                conflicts.append((a, b))
+    return conflicts
+
+
+# ── Bedrock: curvature review ──────────────────────────────────────────────────
+
+_CURVATURE_PROMPT = """\
+Context diagram layout optimizer. Central system: "{system_name}". Stakeholders on a radial circle.
+
+Stakeholders (id, name, angle° clockwise from top):
+{stakeholder_info}
+
+Current flows (id: actor→direction, label, curvature, angular_offset°):
+{flow_info}
+
+{overlap_section}
+Fine-tune curvature and angular_offset_deg for all flows:
+- Same-pair edges must form a symmetric arc fan: curvature and angular_offset MUST share the same sign
+- Adjacent angular_offsets within the same pair should be spaced ≥ 15° apart
+- angular_offset_deg in [-80, 80]; curvature in [-1.2, 1.2]
+- Resolve any label overlaps between different actor pairs using angular_offset spread
+- Preserve the fan order (sorted by angular_offset from most negative to most positive)
+
+Return ONLY JSON — include ALL flow IDs: {{"flows": {{"<id>": {{"curvature": <float>, "angular_offset_deg": <float>}}, ...}}}}\
+"""
+
+
+def _rule_separate_conflicts(
+    flows: list[dict],
+    conflicts: list[tuple[str, str]],
+) -> list[dict]:
+    """Assign opposite curvature signs to conflicting flow pairs."""
+    curv = {f["id"]: float(f.get("curvature", 0.0) or 0.0) for f in flows}
+    for a, b in conflicts:
+        ca, cb = curv[a], curv[b]
+        if abs(ca - cb) >= 0.15:
+            continue
+        step = 0.15
+        curv[a] = round(step if ca >= 0 else -step, 2)
+        curv[b] = round(-step if ca >= 0 else step, 2)
+    return [{**f, "curvature": curv[f["id"]]} for f in flows]
+
+
+async def review_curvatures(
+    layout: ContextLayout,
+    flows: list[dict],
+    stakeholder_names: dict[str, str],
+    system_name: str = "System",
+    access_key: str = "",
+    secret_key: str = "",
+    region: str = "us-east-1",
+    model_id: str = "google.gemma-3-4b-it",
+) -> list[dict]:
+    """Review curvature + angular_offset via Bedrock; rule-based fallback on conflicts only."""
+    conflicts = _detect_cross_pair_overlaps(layout.nodes, flows)
+
+    if access_key and secret_key:
+        try:
+            return await _bedrock_review_curvatures(
+                layout, flows, conflicts, stakeholder_names, system_name,
+                access_key, secret_key, region, model_id,
+            )
+        except Exception as exc:
+            logger.warning("Bedrock curvature review failed, rule-based fallback: %s", exc)
+
+    return _rule_separate_conflicts(flows, conflicts) if conflicts else flows
+
+
+async def _bedrock_review_curvatures(
+    layout: ContextLayout,
+    flows: list[dict],
+    conflicts: list[tuple[str, str]],
+    stakeholder_names: dict[str, str],
+    system_name: str,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    model_id: str,
+) -> list[dict]:
+    # only auto-generated edges participate in curvature review; user-created edges pass through
+    auto_flows = [f for f in flows if "flow_key" in f]
+    user_flows = [f for f in flows if "flow_key" not in f]
+
+    node_angle = {n.id: round(math.degrees(n.angle) % 360, 0) for n in layout.nodes}
+    stakeholder_info = "\n".join(
+        f'- id={sid} "{stakeholder_names.get(sid, sid)}" {node_angle.get(sid, "?")}°'
+        for sid in [n.id for n in layout.nodes]
+    )
+    flow_info = "\n".join(
+        f'- {f["id"]}: {f.get("source")}→{f.get("target")} '
+        f'"{f.get("label","")}" curv={f.get("curvature", 0.0)} '
+        f'ang={round(math.degrees(float(f.get("angular_offset", 0.0) or 0.0)), 1)}°'
+        for f in auto_flows
+    )
+    overlap_section = (
+        "Edge label pairs that visually overlap:\n" +
+        "\n".join(f"- {a} ↔ {b}" for a, b in conflicts)
+        if conflicts else
+        "No label overlaps detected — review for arc fan quality only."
+    )
+    prompt = _CURVATURE_PROMPT.format(
+        system_name=system_name,
+        stakeholder_info=stakeholder_info,
+        flow_info=flow_info,
+        overlap_section=overlap_section,
+    )
+    raw = (await _call_bedrock(prompt, access_key, secret_key, region, model_id)).get("flows", {})
+
+    updated_auto = []
+    for f in auto_flows:
+        update = raw.get(f["id"], {})
+        patch = {}
+        if "curvature" in update:
+            patch["curvature"] = round(float(update["curvature"]), 3)
+        if "angular_offset_deg" in update:
+            patch["angular_offset"] = round(math.radians(float(update["angular_offset_deg"])), 4)
+        updated_auto.append({**f, **patch})
+
+    # restore original insertion order
+    order = {f["id"]: i for i, f in enumerate(flows)}
+    merged = user_flows + updated_auto
+    merged.sort(key=lambda f: order.get(f["id"], 0))
+    return merged
+

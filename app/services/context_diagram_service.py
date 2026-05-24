@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 import uuid
 from collections import defaultdict
 from typing import Any
@@ -26,37 +27,51 @@ from app.schemas.context_diagram import (
 )
 from app.utils.context.direction import classify_direction
 from app.utils.context.layout import (
+
     calculate_layout as calc_context_layout,
     enrich_layout_edges,
     layout_to_context_dict,
+    review_curvatures,
     review_positions as review_context_positions,
 )
 
 _CENTER = "center"
+_FLOW_KEY = "flow_key"
+_INTERNAL_ACTOR_NAMES = frozenset(["hệ thống", "system", "backend"])
 
-# Curvature for flows sharing the same unordered endpoint pair (covers both
-# true parallel A→B,A→B and bidirectional A→B,B→A — perp flips with direction
-# so opposite-direction flows visually separate even at the same curvature value).
-# Pattern: 0, +0.4, -0.4, +0.8, -0.8, ...
-_CURVE_STEPS = [0.0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2]
+
+def _is_internal_actor(actor_name: str) -> bool:
+    lower = actor_name.lower()
+    return any(p in lower for p in _INTERNAL_ACTOR_NAMES)
+
+
+_ANGLE_PER_STEP = math.radians(20)  # 20° per signed step
+_CURVE_PER_STEP = 0.35
+_MAX_ANGLE = math.radians(80)
+_MAX_CURVE = 1.2
+
+
+def _signed_step(idx: int) -> int:
+    """0, +1, -1, +2, -2, +3, -3 ..."""
+    if idx == 0:
+        return 0
+    step = (idx + 1) // 2
+    return step if idx % 2 == 1 else -step
 
 
 def _assign_curvatures(flows: list[dict]) -> list[dict]:
-    """Assign curvature to flows; key on unordered endpoint pair so bidirectional
-    edges get distinct curvature steps and do not visually overlap."""
-    pair_counts: dict[frozenset, int] = defaultdict(int)
+    """Assign symmetric angular fan values to same-pair edges (0, ±1, ±2 … steps)."""
+    pair_idx: dict[frozenset, int] = defaultdict(int)
     result = []
     for f in flows:
         src, tgt = f.get("source", ""), f.get("target", "")
         pair = frozenset((src, tgt))
-        idx = pair_counts[pair]
-        curvature = (
-            _CURVE_STEPS[idx]
-            if idx < len(_CURVE_STEPS)
-            else (idx // 2 + 1) * 0.4 * (1 if idx % 2 == 0 else -1)
-        )
-        result.append({**f, "curvature": curvature})
-        pair_counts[pair] += 1
+        idx = pair_idx[pair]
+        s = _signed_step(idx)
+        angular_offset = max(-_MAX_ANGLE, min(_MAX_ANGLE, s * _ANGLE_PER_STEP))
+        curvature = max(-_MAX_CURVE, min(_MAX_CURVE, s * _CURVE_PER_STEP))
+        result.append({**f, "curvature": round(curvature, 3), "angular_offset": round(angular_offset, 4)})
+        pair_idx[pair] += 1
     return result
 
 
@@ -310,6 +325,14 @@ class ContextDiagramService:
         seen_actors: set[str] = set(existing_ids)
         flow_actor_ids: list[str] = []
 
+        # name → actor_id map for re-attribution of internal-actor edges
+        actor_name_to_id: dict[str, str] = {}
+        for action, _, _, actor_name in rows:
+            if actor_name:
+                actor_name_to_id[actor_name.lower()] = str(action.actor_id)
+        # only external actors as context hint — internal ones would confuse the classifier
+        all_actor_names = [n for n in actor_name_to_id if not _is_internal_actor(n)]
+
         # group uncached rows by flow, preserving insertion order
         uncached_by_flow: dict[str, list[tuple[Any, str, str, str]]] = {}
         for action, flow_id, flow_name, actor_name in rows:
@@ -327,7 +350,10 @@ class ContextDiagramService:
         # classify one flow at a time — keeps Bedrock context scoped per flow
         for flow_rows in uncached_by_flow.values():
             bedrock_results = await asyncio.gather(*[
-                classify_direction(action.description or "", actor=actor_name or "", **bedrock_kwargs)
+                classify_direction(
+                    action.description or "", actor=actor_name or "",
+                    other_actors=all_actor_names, **bedrock_kwargs,
+                )
                 for action, _, actor_name, _ in flow_rows
             ])
             for (action, _, _, desc_hash), result in zip(flow_rows, bedrock_results):
@@ -337,55 +363,77 @@ class ContextDiagramService:
                     "label": result["label"],
                 }
 
-        # one edge per (actor, direction) — prevents parallel edges on same pair
-        groups: dict[tuple[str, str], str] = {}
-        for action, flow_id, flow_name, _ in rows:
+        all_valid_ids = existing_ids | set(flow_actor_ids)
+
+        # separate user-created edges (no flow_key) from previously auto-generated ones
+        preserved_flows = [f for f in diagram.flows if _FLOW_KEY not in f]
+        actors_with_edges: set[str] = {
+            f.get("source", "") for f in preserved_flows if f.get("source") != _CENTER
+        } | {
+            f.get("target", "") for f in preserved_flows if f.get("target") != _CENTER
+        }
+        new_flows: list[dict[str, Any]] = []
+
+        for action, flow_id, flow_name, actor_name in rows:
             aid = str(action.actor_id)
             entry = new_meta.get(str(action.id), {})
             direction = entry.get("direction", "actor_to_system")
             label = entry.get("label", flow_name)
-            key = (aid, direction)
-            if key not in groups:
-                groups[key] = label
 
-        all_valid_ids = existing_ids | set(flow_actor_ids)
-        existing_pairs: set[tuple[str, str]] = {
-            (f.get("source", ""), f.get("target", ""))
-            for f in diagram.flows
-        }
-        actors_with_edges: set[str] = {
-            f.get("source", "") for f in diagram.flows if f.get("source") != _CENTER
-        } | {
-            f.get("target", "") for f in diagram.flows if f.get("target") != _CENTER
-        }
-        new_flows: list[dict[str, Any]] = []
+            if direction == "system_to_actor" and _is_internal_actor(actor_name or ""):
+                desc_lower = (action.description or "").lower()
+                for name_lower, other_aid in actor_name_to_id.items():
+                    if other_aid != aid and name_lower in desc_lower:
+                        aid = other_aid
+                        break
 
-        for (aid, direction), label in groups.items():
             if aid not in all_valid_ids:
                 continue
+
             src, tgt = (_CENTER, aid) if direction == "system_to_actor" else (aid, _CENTER)
-            if (src, tgt) not in existing_pairs:
-                new_flows.append({"id": str(uuid.uuid4()), "source": src, "target": tgt, "label": label})
-                existing_pairs.add((src, tgt))
+            new_flows.append({
+                "id": str(uuid.uuid4()),
+                "source": src,
+                "target": tgt,
+                "label": label or "",
+                _FLOW_KEY: f"{src}:{tgt}:{action.id}",
+            })
             actors_with_edges.add(aid)
 
         # stakeholders with no edge at all get a default actor→center edge
         all_stakeholder_ids = list(existing_ids) + flow_actor_ids
         for sid in all_stakeholder_ids:
             if sid not in actors_with_edges:
-                new_flows.append({"id": str(uuid.uuid4()), "source": sid, "target": _CENTER, "label": ""})
-                existing_pairs.add((sid, _CENTER))
+                new_flows.append({
+                    "id": str(uuid.uuid4()),
+                    "source": sid,
+                    "target": _CENTER,
+                    "label": "",
+                    _FLOW_KEY: f"{sid}:{_CENTER}:default",
+                })
                 actors_with_edges.add(sid)
 
         if flow_actor_ids:
             diagram.stakeholder_ids = diagram.stakeholder_ids + flow_actor_ids
             flag_modified(diagram, "stakeholder_ids")
 
-        if new_flows:
-            merged = diagram.flows + new_flows
+        # structural change = auto-edge set (src, tgt, flow_key triples) differs from current
+        def _edge_sig(f: dict) -> tuple[str, str, str]:
+            return (f.get("source", ""), f.get("target", ""), f.get(_FLOW_KEY, ""))
+
+        old_auto_sigs = {_edge_sig(f) for f in diagram.flows if _FLOW_KEY in f}
+        new_auto_sigs = {_edge_sig(f) for f in new_flows}
+        auto_edges_changed = old_auto_sigs != new_auto_sigs
+
+        if auto_edges_changed:
+            merged = preserved_flows + new_flows
             merged = _assign_curvatures(merged)
             diagram.flows = merged
             flag_modified(diagram, "flows")
+
+        # load stakeholder map once; needed for auto_label and _compute_layout
+        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
+        stakeholder_names = {sid: s.name for sid, s in stakeholder_map.items()}
 
         meta_changed = new_meta != existing_meta
         if meta_changed:
@@ -394,13 +442,14 @@ class ContextDiagramService:
 
         diagram_changed = bool(flow_actor_ids or new_flows or meta_changed)
 
-        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
-
         # recompute layout only when diagram structure changed — preserve user-dragged positions otherwise
         if diagram_changed or not diagram.layout:
-            new_layout = await self._compute_layout(
+            new_layout, reviewed_flows = await self._compute_layout(
                 diagram, stakeholder_map, project_name, bedrock_kwargs
             )
+            if reviewed_flows != list(diagram.flows):
+                diagram.flows = reviewed_flows
+                flag_modified(diagram, "flows")
             diagram.layout = new_layout
             flag_modified(diagram, "layout")
 
@@ -419,7 +468,7 @@ class ContextDiagramService:
         stakeholder_map: dict,
         project_name: str,
         bedrock_kwargs: dict,
-    ) -> dict:
+    ) -> tuple[dict, list[dict]]:
         from app.config import settings
 
         stakeholder_names = {sid: s.name for sid, s in stakeholder_map.items()}
@@ -436,4 +485,11 @@ class ContextDiagramService:
             region=bedrock_kwargs.get("region", settings.aws_region),
             model_id=bedrock_kwargs.get("model_id", settings.bedrock_notation_model),
         )
-        return layout_to_context_dict(layout, flows)
+        reviewed_flows = await review_curvatures(
+            layout, flows, stakeholder_names, project_name,
+            access_key=bedrock_kwargs.get("access_key", ""),
+            secret_key=bedrock_kwargs.get("secret_key", ""),
+            region=bedrock_kwargs.get("region", settings.aws_region),
+            model_id=bedrock_kwargs.get("model_id", settings.bedrock_notation_model),
+        )
+        return layout_to_context_dict(layout, reviewed_flows), reviewed_flows
