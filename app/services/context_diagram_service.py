@@ -408,15 +408,19 @@ class ContextDiagramService:
             diagram.sync_meta = new_meta
             flag_modified(diagram, "sync_meta")
 
-        # recompute layout after every sync so positions always match current stakeholders+flows
-        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
-        new_layout = await self._compute_layout(
-            diagram, stakeholder_map, project_name, bedrock_kwargs
-        )
-        diagram.layout = new_layout
-        flag_modified(diagram, "layout")
+        diagram_changed = bool(flow_actor_ids or new_flows or meta_changed)
 
-        if flow_actor_ids or new_flows or meta_changed:
+        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
+
+        # recompute layout only when diagram structure changed — preserve user-dragged positions otherwise
+        if diagram_changed or not diagram.layout:
+            new_layout = await self._compute_layout(
+                diagram, stakeholder_map, project_name, bedrock_kwargs
+            )
+            diagram.layout = new_layout
+            flag_modified(diagram, "layout")
+
+        if diagram_changed:
             await self.db.flush()
 
         return SyncResult(
