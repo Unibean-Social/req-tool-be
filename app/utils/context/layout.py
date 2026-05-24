@@ -25,6 +25,8 @@ RADIUS = CENTER_R + 300.0 # center edge → stakeholder edge gap ~300px
 LABEL_W = 130.0
 LABEL_H = 24.0
 LABEL_PERP_OFFSET = 20.0  # px to push bidirectional labels apart
+EDGE_BULGE_PX = 80.0      # perpendicular bezier bulge per unit curvature
+LABEL_BULGE_PX = 40.0     # label perpendicular shift per unit curvature
 
 
 # ── Data classes ───────────────────────────────────────────────────────────────
@@ -294,9 +296,115 @@ def _extract_json(text: str) -> dict:
     return {}
 
 
+# ── Edge geometry: anchors + label_offset from curvature ──────────────────────
+
+def _rect_perimeter_intersect(cx: float, cy: float, half_w: float, half_h: float,
+                              ux: float, uy: float) -> tuple[float, float]:
+    """Ray (cx,cy)+t*(ux,uy) hitting axis-aligned rectangle perimeter."""
+    aux, auy = abs(ux), abs(uy)
+    if aux < 1e-9:
+        t = half_h / max(auy, 1e-9)
+    elif auy < 1e-9:
+        t = half_w / aux
+    else:
+        t = min(half_w / aux, half_h / auy)
+    return cx + ux * t, cy + uy * t
+
+
+def _node_perimeter_anchor(node_id: str, cx: float, cy: float, w: float, h: float,
+                           ux: float, uy: float) -> tuple[float, float]:
+    if node_id == "center":
+        return cx + ux * CENTER_R, cy + uy * CENTER_R
+    return _rect_perimeter_intersect(cx, cy, w / 2, h / 2, ux, uy)
+
+
+def _compute_curve_geometry(
+    src_id: str, tgt_id: str, curvature: float,
+    node_pos: dict[str, tuple[float, float]],
+    node_size: dict[str, tuple[float, float]],
+) -> tuple[dict, dict, dict]:
+    """Return (source_anchor, target_anchor, label_offset) for a quadratic bezier flow."""
+    sx, sy = node_pos.get(src_id, (CANVAS_CX, CANVAS_CY))
+    tx, ty = node_pos.get(tgt_id, (CANVAS_CX, CANVAS_CY))
+
+    dx, dy = tx - sx, ty - sy
+    length = math.hypot(dx, dy) or 1.0
+    perp_x, perp_y = -dy / length, dx / length  # 90° CCW unit perpendicular
+
+    bulge = curvature * EDGE_BULGE_PX
+    ctrl_x = (sx + tx) / 2 + perp_x * bulge
+    ctrl_y = (sy + ty) / 2 + perp_y * bulge
+
+    s_tan_x, s_tan_y = ctrl_x - sx, ctrl_y - sy
+    s_len = math.hypot(s_tan_x, s_tan_y) or 1.0
+    t_tan_x, t_tan_y = ctrl_x - tx, ctrl_y - ty
+    t_len = math.hypot(t_tan_x, t_tan_y) or 1.0
+
+    sw, sh = node_size.get(src_id, (STK_W, STK_H))
+    tw, th = node_size.get(tgt_id, (STK_W, STK_H))
+
+    ax, ay = _node_perimeter_anchor(src_id, sx, sy, sw, sh, s_tan_x / s_len, s_tan_y / s_len)
+    bx, by = _node_perimeter_anchor(tgt_id, tx, ty, tw, th, t_tan_x / t_len, t_tan_y / t_len)
+
+    return (
+        {"x": round(ax, 1), "y": round(ay, 1)},
+        {"x": round(bx, 1), "y": round(by, 1)},
+        {
+            "x": round(perp_x * curvature * LABEL_BULGE_PX, 1),
+            "y": round(perp_y * curvature * LABEL_BULGE_PX, 1),
+        },
+    )
+
+
+def enrich_layout_edges(layout_dict: dict | None, flows: list[dict]) -> dict | None:
+    """Fill null source_anchor/target_anchor/label_offset on every edge using flow curvature.
+
+    Preserves any explicit values (user-dragged via PUT /canvas-layout). Adds missing
+    edge entries for flows not yet represented in the layout.
+    """
+    if not layout_dict:
+        return layout_dict
+
+    node_pos: dict[str, tuple[float, float]] = {}
+    node_size: dict[str, tuple[float, float]] = {}
+    for n in layout_dict.get("nodes", []):
+        p = n.get("position", {})
+        node_pos[n["id"]] = (float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+        node_size[n["id"]] = (
+            float(n.get("width", STK_W)),
+            float(n.get("height", STK_H)),
+        )
+
+    edge_by_id = {e.get("id"): dict(e) for e in layout_dict.get("edges", [])}
+    enriched: list[dict] = []
+    for f in flows:
+        fid = f.get("id")
+        if not fid:
+            continue
+        edge = edge_by_id.pop(fid, {"id": fid})
+        src_anchor, tgt_anchor, label_offset = _compute_curve_geometry(
+            f.get("source", ""), f.get("target", ""),
+            float(f.get("curvature", 0.0) or 0.0),
+            node_pos, node_size,
+        )
+        edge.setdefault("waypoint", None)
+        if edge.get("source_anchor") is None:
+            edge["source_anchor"] = src_anchor
+        if edge.get("target_anchor") is None:
+            edge["target_anchor"] = tgt_anchor
+        if edge.get("label_offset") is None:
+            edge["label_offset"] = label_offset
+        enriched.append(edge)
+
+    # keep orphaned edges (flow may have been deleted but layout edge lingered)
+    enriched.extend(edge_by_id.values())
+    layout_dict["edges"] = enriched
+    return layout_dict
+
+
 # ── Serialization ──────────────────────────────────────────────────────────────
 
-def layout_to_context_dict(layout: ContextLayout) -> dict:
+def layout_to_context_dict(layout: ContextLayout, flows: list[dict]) -> dict:
     nodes = [
         {
             "id": "center",
@@ -313,11 +421,5 @@ def layout_to_context_dict(layout: ContextLayout) -> dict:
             "height": n.height,
         })
 
-    edges = []
-    for e in layout.edges:
-        entry: dict = {"id": e.id}
-        if e.label_offset_x or e.label_offset_y:
-            entry["label_offset"] = {"x": e.label_offset_x, "y": e.label_offset_y}
-        edges.append(entry)
-
-    return {"nodes": nodes, "edges": edges}
+    layout_dict = {"nodes": nodes, "edges": [{"id": f["id"]} for f in flows if f.get("id")]}
+    return enrich_layout_edges(layout_dict, flows)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import math
 import uuid
 from collections import defaultdict
 from typing import Any
@@ -28,57 +27,35 @@ from app.schemas.context_diagram import (
 from app.utils.context.direction import classify_direction
 from app.utils.context.layout import (
     calculate_layout as calc_context_layout,
+    enrich_layout_edges,
     layout_to_context_dict,
     review_positions as review_context_positions,
 )
 
 _CENTER = "center"
 
-# Curvature offsets for parallel edges sharing the same (source, target).
+# Curvature for flows sharing the same unordered endpoint pair (covers both
+# true parallel A→B,A→B and bidirectional A→B,B→A — perp flips with direction
+# so opposite-direction flows visually separate even at the same curvature value).
 # Pattern: 0, +0.4, -0.4, +0.8, -0.8, ...
 _CURVE_STEPS = [0.0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2]
-_LABEL_PERP_PX = 30  # pixels to shift label perpendicular to edge per curvature unit
 
 
-def _assign_curvatures(flows: list[dict], layout: dict | None = None) -> list[dict]:
-    """Assign curvature + label_offset to parallel edges sharing the same (source, target).
-
-    label_offset is a perpendicular shift so labels don't pile on top of each other.
-    When layout node positions are available, compute the actual perpendicular direction.
-    Otherwise fall back to a horizontal offset (frontend must rotate as needed).
-    """
-    node_pos: dict[str, tuple[float, float]] = {}
-    if layout:
-        for node in layout.get("nodes", []):
-            p = node.get("position", {})
-            node_pos[node["id"]] = (float(p.get("x", 0)), float(p.get("y", 0)))
-
-    pair_counts: dict[tuple[str, str], int] = defaultdict(int)
+def _assign_curvatures(flows: list[dict]) -> list[dict]:
+    """Assign curvature to flows; key on unordered endpoint pair so bidirectional
+    edges get distinct curvature steps and do not visually overlap."""
+    pair_counts: dict[frozenset, int] = defaultdict(int)
     result = []
     for f in flows:
         src, tgt = f.get("source", ""), f.get("target", "")
-        pair = (src, tgt)
+        pair = frozenset((src, tgt))
         idx = pair_counts[pair]
         curvature = (
             _CURVE_STEPS[idx]
             if idx < len(_CURVE_STEPS)
             else (idx // 2 + 1) * 0.4 * (1 if idx % 2 == 0 else -1)
         )
-
-        # perpendicular direction: rotate edge vector 90°
-        if src in node_pos and tgt in node_pos:
-            dx = node_pos[tgt][0] - node_pos[src][0]
-            dy = node_pos[tgt][1] - node_pos[src][1]
-            length = math.hypot(dx, dy) or 1.0
-            # perpendicular unit vector (rotate 90° CCW)
-            px, py = -dy / length, dx / length
-            shift = curvature * _LABEL_PERP_PX
-            label_offset = {"x": round(px * shift, 1), "y": round(py * shift, 1)}
-        else:
-            # no layout: store a scalar hint; frontend applies perpendicular rotation
-            label_offset = {"x": round(curvature * _LABEL_PERP_PX, 1), "y": 0.0}
-
-        result.append({**f, "curvature": curvature, "label_offset": label_offset})
+        result.append({**f, "curvature": curvature})
         pair_counts[pair] += 1
     return result
 
@@ -149,11 +126,18 @@ class ContextDiagramService:
                 name=s.name if s else sid,
                 role=s.system_description if s else None,
             ))
+        # Fill null anchors / label_offset for FE curve rendering. Copy first so we
+        # don't mutate the SQLAlchemy-tracked JSON column.
+        layout = (
+            enrich_layout_edges({**diagram.layout}, list(diagram.flows))
+            if diagram.layout
+            else None
+        )
         return ContextDiagramResponse(
             center_label=project_name,
             stakeholders=stakeholders,
             flows=[ContextDiagramFlow(**f) for f in diagram.flows],
-            layout=diagram.layout,
+            layout=layout,
         )
 
     async def get(self, project_id: uuid.UUID) -> ContextDiagramResponse:
@@ -399,7 +383,7 @@ class ContextDiagramService:
 
         if new_flows:
             merged = diagram.flows + new_flows
-            merged = _assign_curvatures(merged, layout=diagram.layout)
+            merged = _assign_curvatures(merged)
             diagram.flows = merged
             flag_modified(diagram, "flows")
 
@@ -452,4 +436,4 @@ class ContextDiagramService:
             region=bedrock_kwargs.get("region", settings.aws_region),
             model_id=bedrock_kwargs.get("model_id", settings.bedrock_notation_model),
         )
-        return layout_to_context_dict(layout)
+        return layout_to_context_dict(layout, flows)
