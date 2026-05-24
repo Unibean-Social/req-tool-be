@@ -1,7 +1,5 @@
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.schemas.project_business import ActivityEdgeOffset
-
 
 class ContextDiagramStakeholder(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -19,12 +17,13 @@ class ContextDiagramFlow(BaseModel):
     target: str
     label: str = ""
     curvature: float = 0.0
-    label_offset: ActivityEdgeOffset | None = None
 
 
 class LayoutNode(BaseModel):
     id: str
     position: dict
+    width: float = 0.0
+    height: float = 0.0
 
 
 class LayoutEdge(BaseModel):

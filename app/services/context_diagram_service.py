@@ -26,6 +26,11 @@ from app.schemas.context_diagram import (
     SyncResult,
 )
 from app.utils.context.direction import classify_direction
+from app.utils.context.layout import (
+    calculate_layout as calc_context_layout,
+    layout_to_context_dict,
+    review_positions as review_context_positions,
+)
 
 _CENTER = "center"
 
@@ -348,20 +353,20 @@ class ContextDiagramService:
                     "label": result["label"],
                 }
 
-        # one edge per (actor, flow, direction) — preserves per-flow labels
-        groups: dict[tuple[str, str, str], str] = {}
+        # one edge per (actor, direction) — prevents parallel edges on same pair
+        groups: dict[tuple[str, str], str] = {}
         for action, flow_id, flow_name, _ in rows:
             aid = str(action.actor_id)
             entry = new_meta.get(str(action.id), {})
             direction = entry.get("direction", "actor_to_system")
             label = entry.get("label", flow_name)
-            key = (aid, str(flow_id), direction)
+            key = (aid, direction)
             if key not in groups:
                 groups[key] = label
 
         all_valid_ids = existing_ids | set(flow_actor_ids)
-        existing_triples: set[tuple[str, str, str]] = {
-            (f.get("source", ""), f.get("target", ""), f.get("label", ""))
+        existing_pairs: set[tuple[str, str]] = {
+            (f.get("source", ""), f.get("target", ""))
             for f in diagram.flows
         }
         actors_with_edges: set[str] = {
@@ -371,13 +376,13 @@ class ContextDiagramService:
         }
         new_flows: list[dict[str, Any]] = []
 
-        for (aid, _flow_id, direction), label in groups.items():
+        for (aid, direction), label in groups.items():
             if aid not in all_valid_ids:
                 continue
             src, tgt = (_CENTER, aid) if direction == "system_to_actor" else (aid, _CENTER)
-            if (src, tgt, label) not in existing_triples:
+            if (src, tgt) not in existing_pairs:
                 new_flows.append({"id": str(uuid.uuid4()), "source": src, "target": tgt, "label": label})
-                existing_triples.add((src, tgt, label))
+                existing_pairs.add((src, tgt))
             actors_with_edges.add(aid)
 
         # stakeholders with no edge at all get a default actor→center edge
@@ -385,7 +390,7 @@ class ContextDiagramService:
         for sid in all_stakeholder_ids:
             if sid not in actors_with_edges:
                 new_flows.append({"id": str(uuid.uuid4()), "source": sid, "target": _CENTER, "label": ""})
-                existing_triples.add((sid, _CENTER, ""))
+                existing_pairs.add((sid, _CENTER))
                 actors_with_edges.add(sid)
 
         if flow_actor_ids:
@@ -403,12 +408,44 @@ class ContextDiagramService:
             diagram.sync_meta = new_meta
             flag_modified(diagram, "sync_meta")
 
+        # recompute layout after every sync so positions always match current stakeholders+flows
+        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
+        new_layout = await self._compute_layout(
+            diagram, stakeholder_map, project_name, bedrock_kwargs
+        )
+        diagram.layout = new_layout
+        flag_modified(diagram, "layout")
+
         if flow_actor_ids or new_flows or meta_changed:
             await self.db.flush()
 
-        stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
         return SyncResult(
             added_stakeholders=len(flow_actor_ids),
             added_flows=len(new_flows),
             diagram=self._build_response(project_name, diagram, stakeholder_map),
         )
+
+    async def _compute_layout(
+        self,
+        diagram: ProjectContextDiagram,
+        stakeholder_map: dict,
+        project_name: str,
+        bedrock_kwargs: dict,
+    ) -> dict:
+        from app.config import settings
+
+        stakeholder_names = {sid: s.name for sid, s in stakeholder_map.items()}
+        flows = list(diagram.flows)
+
+        layout = calc_context_layout(diagram.stakeholder_ids, flows)
+        layout = await review_context_positions(
+            layout,
+            stakeholder_names=stakeholder_names,
+            flows=flows,
+            system_name=project_name,
+            access_key=bedrock_kwargs.get("access_key", ""),
+            secret_key=bedrock_kwargs.get("secret_key", ""),
+            region=bedrock_kwargs.get("region", settings.aws_region),
+            model_id=bedrock_kwargs.get("model_id", settings.bedrock_notation_model),
+        )
+        return layout_to_context_dict(layout)
