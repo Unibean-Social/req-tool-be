@@ -22,6 +22,7 @@ from app.services.project_business_service import ProjectBusinessService
 from app.services.estimate_service import EstimateService
 from app.services.staleness_service import StalenessService
 from app.services.brd_export_service import BRDExportService
+from app.services.context_diagram_service import ContextDiagramService
 
 bearer = HTTPBearer()
 
@@ -115,3 +116,7 @@ def get_staleness_service(db: AsyncSession = Depends(get_db)) -> StalenessServic
 
 def get_brd_export_service(db: AsyncSession = Depends(get_db)) -> BRDExportService:
     return BRDExportService(db)
+
+
+def get_context_diagram_service(db: AsyncSession = Depends(get_db)) -> ContextDiagramService:
+    return ContextDiagramService(db)

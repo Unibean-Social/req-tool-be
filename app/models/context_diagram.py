@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -19,8 +19,8 @@ class ProjectContextDiagram(AuditMixin, Base):
         unique=True,
         index=True,
     )
-    nodes: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
-    edges: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
-    source: Mapped[str] = mapped_column(Text, nullable=False, default="manual")
+    stakeholder_ids: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    flows: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    layout: Mapped[Any | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="context_diagram")  # noqa: F821
