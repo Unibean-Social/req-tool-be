@@ -16,6 +16,7 @@ class ContextDiagramFlow(BaseModel):
     source: str
     target: str
     label: str = ""
+    curvature: float = 0.0
 
 
 class LayoutNode(BaseModel):

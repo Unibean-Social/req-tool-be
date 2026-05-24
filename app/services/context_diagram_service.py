@@ -27,6 +27,23 @@ from app.utils.context.direction import classify_direction
 
 _CENTER = "center"
 
+# Curvature offsets for parallel edges sharing the same (source, target).
+# Pattern: 0, +0.3, -0.3, +0.6, -0.6, ...
+_CURVE_STEPS = [0.0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9]
+
+
+def _assign_curvatures(flows: list[dict]) -> list[dict]:
+    from collections import defaultdict
+    pair_counts: dict[tuple[str, str], int] = defaultdict(int)
+    result = []
+    for f in flows:
+        pair = (f.get("source", ""), f.get("target", ""))
+        idx = pair_counts[pair]
+        curvature = _CURVE_STEPS[idx] if idx < len(_CURVE_STEPS) else (idx // 2 + 1) * 0.3 * (1 if idx % 2 == 0 else -1)
+        result.append({**f, "curvature": curvature})
+        pair_counts[pair] += 1
+    return result
+
 
 class ContextDiagramService:
     def __init__(self, db: AsyncSession) -> None:
@@ -343,7 +360,9 @@ class ContextDiagramService:
             flag_modified(diagram, "stakeholder_ids")
 
         if new_flows:
-            diagram.flows = diagram.flows + new_flows
+            merged = diagram.flows + new_flows
+            merged = _assign_curvatures(merged)
+            diagram.flows = merged
             flag_modified(diagram, "flows")
 
         meta_changed = new_meta != existing_meta
