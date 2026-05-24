@@ -48,7 +48,7 @@ from app.schemas.project_business import (
     ProjectRuleCreate,
     ProjectRuleResponse,
     ProjectRuleUpdate,
-    SwimlaneRequest,
+    ActivityRequest,
 )
 from app.schemas.response import ApiResponse
 from app.services.brd_export_service import BRDExportService, BRDResponse
@@ -171,16 +171,16 @@ async def get_flow(
     return ok(await service.get_flow(project_id, flow_id))
 
 
-@router.put("/flows/{flow_id}/swimlane", response_model=ApiResponse[ProjectFlowDetailResponse], tags=["Project Flows"])
-async def update_flow_swimlane(
+@router.put("/flows/{flow_id}/canvas-layout", response_model=ApiResponse[ProjectFlowDetailResponse], tags=["Project Flows"])
+async def update_flow_canvas_layout(
     project_id: uuid.UUID,
     flow_id: uuid.UUID,
-    body: SwimlaneRequest,
+    body: ActivityRequest,
     user: User = Depends(current_user),
     service: ProjectBusinessService = Depends(get_project_business_service),
 ):
     await require_project_access(project_id, user, service.db)
-    return ok(await service.update_swimlane(project_id, flow_id, body))
+    return ok(await service.update_activity(project_id, flow_id, body))
 
 
 # ── Flow Actions ──────────────────────────────────────────────────────────────

@@ -98,7 +98,7 @@ class ProjectFlow(AuditMixin, Base):
     code: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    swimlane: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    activity: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
     project: Mapped["Project"] = relationship(back_populates="flows")  # noqa: F821
     actions: Mapped[list["ProjectFlowAction"]] = relationship(

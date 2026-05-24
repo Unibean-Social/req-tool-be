@@ -3,7 +3,7 @@ Swimlane layout engine.
 
 1: calculate_layout   — assign x, y, width, height per node
 2: review_positions   — Bedrock AI optimizer with rule-based fallback
-         layout_to_swimlane_dict — serialize SwimlaneLayout → JSONB dict
+         layout_to_activity_dict — serialize ActivityLayout → JSONB dict
 """
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ class FlowLayout:
 
 
 @dataclass
-class SwimlaneLayout:
+class ActivityLayout:
     lanes: list[LaneSpec]
     initial_node: NodeLayout
     final_node: NodeLayout
@@ -157,7 +157,7 @@ def _compute_lane_geometry(
 def calculate_layout(
     actions: list[dict],  # [{id, lane_id, notation, label?, order}]
     lane_ids: list[str],
-) -> SwimlaneLayout:
+) -> ActivityLayout:
     lanes = [LaneSpec(id=lid, index=i) for i, lid in enumerate(lane_ids)]
     lane_map = {ln.id: ln for ln in lanes}
     sorted_actions = sorted(actions, key=lambda a: a.get("order", 0))
@@ -215,7 +215,7 @@ def calculate_layout(
     )
 
     flows = _build_flows(actions, nodes, initial, final, lanes)
-    return SwimlaneLayout(lanes=lanes, initial_node=initial, final_node=final, nodes=nodes, flows=flows)
+    return ActivityLayout(lanes=lanes, initial_node=initial, final_node=final, nodes=nodes, flows=flows)
 
 
 def _resolve_decision_guards(node: NodeLayout) -> tuple[str, str]:
@@ -443,13 +443,13 @@ If the layout is already optimal: {{"nodes": []}}\
 
 
 async def review_positions(
-    layout: SwimlaneLayout,
+    layout: ActivityLayout,
     access_key: str = "",
     secret_key: str = "",
     region: str = "us-east-1",
     model_id: str = "google.gemma-3-4b-it",
     max_iterations: int = 3,
-) -> SwimlaneLayout:
+) -> ActivityLayout:
     if access_key and secret_key:
         try:
             layout = await _bedrock_review(layout, access_key, secret_key, region, model_id)
@@ -461,12 +461,12 @@ async def review_positions(
     return layout
 
 
-def fix_layout(layout: SwimlaneLayout, max_iterations: int = 3) -> SwimlaneLayout:
+def fix_layout(layout: ActivityLayout, max_iterations: int = 3) -> ActivityLayout:
     """Rule-based conflict resolution — no external deps. Always safe to call."""
     return _rule_based_review(layout, max_iterations)
 
 
-def _rule_based_review(layout: SwimlaneLayout, max_iterations: int = 3) -> SwimlaneLayout:
+def _rule_based_review(layout: ActivityLayout, max_iterations: int = 3) -> ActivityLayout:
     for _ in range(max_iterations):
         conflicts = _find_conflicts(layout)
         if not conflicts:
@@ -504,12 +504,12 @@ def _extract_json_from_response(text: str) -> dict:
 
 
 async def _bedrock_review(
-    layout: SwimlaneLayout,
+    layout: ActivityLayout,
     access_key: str,
     secret_key: str,
     region: str,
     model_id: str,
-) -> SwimlaneLayout:
+) -> ActivityLayout:
     import asyncio
 
     all_nodes = [layout.initial_node] + layout.nodes + [layout.final_node]
@@ -583,7 +583,7 @@ def _invoke_bedrock_review(
 
 # ── Rule-based conflict detection + auto-fix ───────────────────────────────────
 
-def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
+def _find_conflicts(layout: ActivityLayout) -> list[dict]:
     conflicts: list[dict] = []
     all_nodes = layout.nodes + [layout.initial_node, layout.final_node]
     lane_map = {ln.id: ln for ln in layout.lanes}
@@ -614,7 +614,7 @@ def _find_conflicts(layout: SwimlaneLayout) -> list[dict]:
     return conflicts
 
 
-def _auto_fix(layout: SwimlaneLayout, conflicts: list[dict]) -> SwimlaneLayout:
+def _auto_fix(layout: ActivityLayout, conflicts: list[dict]) -> ActivityLayout:
     node_map = {n.id: n for n in layout.nodes + [layout.initial_node, layout.final_node]}
 
     for c in conflicts:
@@ -653,7 +653,7 @@ def _auto_fix(layout: SwimlaneLayout, conflicts: list[dict]) -> SwimlaneLayout:
 
 # ── Serialization ──────────────────────────────────────────────────────────────
 
-def layout_to_swimlane_dict(layout: SwimlaneLayout, flow_id: str, title: str) -> dict:
+def layout_to_activity_dict(layout: ActivityLayout, flow_id: str, title: str) -> dict:
     return {
         "id": flow_id,
         "title": title,

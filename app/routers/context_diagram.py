@@ -33,8 +33,8 @@ async def get_context_diagram(
     return ok(await service.get(project_id))
 
 
-@router.put("/layout", response_model=ApiResponse[None])
-async def save_layout(
+@router.put("/canvas-layout", response_model=ApiResponse[None])
+async def save_canvas_layout(
     project_id: uuid.UUID,
     body: LayoutSaveRequest,
     user: User = Depends(current_user),

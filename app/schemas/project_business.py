@@ -233,31 +233,31 @@ _HandleEnum = Literal[
 ]
 
 
-class SwimlaneWaypoint(BaseModel):
+class ActivityWaypoint(BaseModel):
     x: float
     y: float
 
 
-class SwimlaneEdgeOffset(BaseModel):
+class ActivityEdgeOffset(BaseModel):
     x: float
     y: float
 
 
-class SwimlaneLane(BaseModel):
+class ActivityLane(BaseModel):
     id: str
     title: str
     width: float | None = None    # px width of lane (dynamic, computed by layout engine)
     x_left: float | None = None   # absolute x of left edge
 
 
-class SwimlaneNode(BaseModel):
+class ActivityNode(BaseModel):
     id: str
     lane_id: str
     x: float | None = None
     y: float
 
 
-class SwimlaneAction(BaseModel):
+class ActivityAction(BaseModel):
     id: uuid.UUID  # must reference an existing ProjectFlowAction.id
     lane_id: str
     notation: Literal["action", "objectNode", "decision", "merge", "fork", "join"] = "action"
@@ -269,7 +269,7 @@ class SwimlaneAction(BaseModel):
     height: float | None = None
 
 
-class SwimlaneFlow(BaseModel):
+class ActivityFlow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -280,8 +280,8 @@ class SwimlaneFlow(BaseModel):
     label: str | None = None
     guard: str | None = None
     flow_type: Literal["control", "object"] = "control"
-    label_offset: SwimlaneEdgeOffset | None = None
-    waypoints: list[SwimlaneWaypoint] | None = None
+    label_offset: ActivityEdgeOffset | None = None
+    waypoints: list[ActivityWaypoint] | None = None
 
     @field_validator("waypoints", mode="before")
     @classmethod
@@ -305,13 +305,13 @@ class SwimlaneFlow(BaseModel):
         return v
 
 
-class SwimlaneRequest(BaseModel):
+class ActivityRequest(BaseModel):
     title: str
-    lanes: list[SwimlaneLane]
-    initial_node: SwimlaneNode
-    activity_final_node: SwimlaneNode
-    actions: list[SwimlaneAction] = []
-    flows: list[SwimlaneFlow] = []
+    lanes: list[ActivityLane]
+    initial_node: ActivityNode
+    activity_final_node: ActivityNode
+    actions: list[ActivityAction] = []
+    flows: list[ActivityFlow] = []
     layout: dict | None = None
 
     @model_validator(mode="after")
@@ -376,7 +376,7 @@ class ProjectFlowResponse(BaseModel):
 
 
 class ProjectFlowDetailResponse(ProjectFlowResponse):
-    swimlane: dict | None = None
+    activity: dict | None = None
 
 
 # ── Flow Templates ─────────────────────────────────────────────────────────────

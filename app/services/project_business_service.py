@@ -22,11 +22,11 @@ from app.models.project_business import (
     ProjectRule,
 )
 from app.models.stakeholder import Stakeholder
-from app.utils.swimlane import (
+from app.utils.activity import (
     calculate_layout,
     detect_notation,
     fix_layout,
-    layout_to_swimlane_dict,
+    layout_to_activity_dict,
     normalize_decision_guards,
     normalize_node_label,
     review_positions,
@@ -56,7 +56,7 @@ from app.schemas.project_business import (
     ProjectRuleCreate,
     ProjectRuleResponse,
     ProjectRuleUpdate,
-    SwimlaneRequest,
+    ActivityRequest,
 )
 
 
@@ -153,9 +153,9 @@ class ProjectBusinessService:
                     action_obj.rules = await self._resolve_rules(project_id, item.rule_ids)
             await self.db.flush()
 
-        flow = await self._load_flow_for_swimlane(obj.id)
+        flow = await self._load_flow_for_activity(obj.id)
         if body.actions:
-            await self._auto_generate_swimlane(flow)
+            await self._auto_generate_activity(flow)
         return ProjectFlowDetailResponse.model_validate(flow)
 
     async def list_flows(self, project_id: uuid.UUID) -> list[ProjectFlowResponse]:
@@ -249,8 +249,8 @@ class ProjectBusinessService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
         return ProjectFlowDetailResponse.model_validate(obj)
 
-    async def update_swimlane(
-        self, project_id: uuid.UUID, flow_id: uuid.UUID, payload: SwimlaneRequest
+    async def update_activity(
+        self, project_id: uuid.UUID, flow_id: uuid.UUID, payload: ActivityRequest
     ) -> ProjectFlowDetailResponse:
         result = await self.db.execute(
             select(ProjectFlow)
@@ -290,8 +290,8 @@ class ProjectBusinessService:
         data["actions"] = enriched_actions
 
         existing_lanes: dict[str, dict] = {}
-        if flow.swimlane and isinstance(flow.swimlane, dict):
-            for l in flow.swimlane.get("lanes", []):
+        if flow.activity and isinstance(flow.activity, dict):
+            for l in flow.activity.get("lanes", []):
                 existing_lanes[l["id"]] = l
         for lane in data["lanes"]:
             prev = existing_lanes.get(lane["id"], {})
@@ -300,7 +300,7 @@ class ProjectBusinessService:
             if lane.get("x_left") is None and prev.get("x_left") is not None:
                 lane["x_left"] = prev["x_left"]
 
-        flow.swimlane = data
+        flow.activity = data
         await self.db.flush()
         refreshed = await self.db.execute(
             select(ProjectFlow)
@@ -320,7 +320,7 @@ class ProjectBusinessService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flow")
         return flow
 
-    async def _load_flow_for_swimlane(self, flow_id: uuid.UUID) -> ProjectFlow:
+    async def _load_flow_for_activity(self, flow_id: uuid.UUID) -> ProjectFlow:
         result = await self.db.execute(
             select(ProjectFlow)
             .where(ProjectFlow.id == flow_id)
@@ -331,7 +331,7 @@ class ProjectBusinessService:
         )
         return result.scalar_one()
 
-    async def _auto_generate_swimlane(self, flow: ProjectFlow) -> None:
+    async def _auto_generate_activity(self, flow: ProjectFlow) -> None:
         # Stage 2: build lane order (preserve insertion order by action.order)
         sorted_actions = sorted(flow.actions, key=lambda a: a.order)
         seen: dict[str, str] = {}
@@ -346,7 +346,7 @@ class ProjectBusinessService:
 
         # Stage 3: detect notations (cache-aware — skip Bedrock when description+actor unchanged)
         existing_cache: dict[str, dict] = {}
-        for entry in (flow.swimlane or {}).get("actions") or []:
+        for entry in (flow.activity or {}).get("actions") or []:
             if "id" in entry:
                 existing_cache[entry["id"]] = entry
 
@@ -424,17 +424,17 @@ class ProjectBusinessService:
             )
 
         # Stage 6: finalize
-        swimlane = layout_to_swimlane_dict(layout, str(flow.id), flow.name)
+        activity = layout_to_activity_dict(layout, str(flow.id), flow.name)
         # Restore lane titles from seen map
-        for lane in swimlane["lanes"]:
+        for lane in activity["lanes"]:
             lane["title"] = seen.get(lane["id"], lane["id"])
         # Re-inject _desc_hash: layout serialization drops it (NodeLayout has no such field),
         # but it must persist so the next call can match cached entries and skip Bedrock.
         hash_map = {a["id"]: a["_desc_hash"] for a in actions_with_notation}
-        for entry in swimlane.get("actions", []):
+        for entry in activity.get("actions", []):
             if entry["id"] in hash_map:
                 entry["_desc_hash"] = hash_map[entry["id"]]
-        flow.swimlane = swimlane
+        flow.activity = activity
 
     async def _validate_actor_in_project(self, project_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         result = await self.db.execute(
@@ -474,8 +474,8 @@ class ProjectBusinessService:
                 obj.rules = await self._resolve_rules(project_id, item.rule_ids)
         await self.db.flush()
 
-        flow = await self._load_flow_for_swimlane(flow_id)
-        await self._auto_generate_swimlane(flow)
+        flow = await self._load_flow_for_activity(flow_id)
+        await self._auto_generate_activity(flow)
 
         ids = [obj.id for obj in objs]
         result = await self.db.execute(
@@ -515,8 +515,8 @@ class ProjectBusinessService:
                 obj.rules = await self._resolve_rules(project_id, item.rule_ids)
         await self.db.flush()
 
-        flow = await self._load_flow_for_swimlane(flow_id)
-        await self._auto_generate_swimlane(flow)
+        flow = await self._load_flow_for_activity(flow_id)
+        await self._auto_generate_activity(flow)
 
         result2 = await self.db.execute(
             select(ProjectFlowAction)
@@ -538,8 +538,8 @@ class ProjectBusinessService:
         await self.db.delete(obj)
         await self.db.flush()
 
-        flow = await self._load_flow_for_swimlane(flow_id)
-        await self._auto_generate_swimlane(flow)
+        flow = await self._load_flow_for_activity(flow_id)
+        await self._auto_generate_activity(flow)
 
     # ── Rules ────────────────────────────────────────────────────────────────
 

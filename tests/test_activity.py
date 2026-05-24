@@ -1,14 +1,14 @@
 """
-Swimlane diagram storage feature tests.
+activity diagram storage feature tests.
 
 Covers:
-- GET /flows/{flow_id} detail — swimlane null on fresh flow with no actions, title==name, order==0
-- POST /flows/{flow_id}/actions — swimlane auto-generated with correct structure
-- PUT /flows/{flow_id}/swimlane with valid minimal payload → 200, blob echoed with id
+- GET /flows/{flow_id} detail — activity null on fresh flow with no actions, title==name, order==0
+- POST /flows/{flow_id}/actions — activity auto-generated with correct structure
+- PUT /flows/{flow_id}/canvas-layout with valid minimal payload → 200, blob echoed with id
 - PUT with action.lane_id not in lanes[].id → 422
 - PUT with action.id not in flow's ProjectFlowAction → 422
 - PUT with flow.source referencing unknown node id → 422
-- GET /flows list items contain title/order but NOT swimlane key
+- GET /flows list items contain title/order but NOT activity key
 - Full round-trip: PUT with actions/flows (using real action IDs), then GET detail verifies
   label auto-populated from ProjectFlowAction.description
 """
@@ -50,8 +50,8 @@ async def _create_action(client, h, pid, flow_id, description="Actor does someth
     return r.json()["data"][0]
 
 
-def _minimal_swimlane_payload(title: str = "Test Swimlane") -> dict:
-    """Minimal valid SwimlaneRequest: 1 lane, initial node, final node, no actions, no flows."""
+def _minimal_activity_payload(title: str = "Test activity") -> dict:
+    """Minimal valid activityRequest: 1 lane, initial node, final node, no actions, no flows."""
     return {
         "title": title,
         "lanes": [{"id": "lane-1", "title": "Default Lane"}],
@@ -66,8 +66,8 @@ def _minimal_swimlane_payload(title: str = "Test Swimlane") -> dict:
 
 
 @pytest.mark.asyncio
-async def test_get_flow_detail_fresh_swimlane_null(client):
-    """GET /flows/{flow_id} on a fresh flow → swimlane is null."""
+async def test_get_flow_detail_fresh_activity_null(client):
+    """GET /flows/{flow_id} on a fresh flow → activity is null."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Registration Flow")
 
@@ -75,12 +75,12 @@ async def test_get_flow_detail_fresh_swimlane_null(client):
     assert r.status_code == 200, r.text
 
     data = r.json()["data"]
-    assert data["swimlane"] is None
+    assert data["activity"] is None
 
 
 @pytest.mark.asyncio
-async def test_swimlane_auto_generated_after_create_actions(client):
-    """POST /actions auto-generates swimlane; GET detail returns non-null swimlane."""
+async def test_activity_auto_generated_after_create_actions(client):
+    """POST /actions auto-generates activity; GET detail returns non-null activity."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Payment Flow")
 
@@ -89,7 +89,7 @@ async def test_swimlane_auto_generated_after_create_actions(client):
 
     r = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
     assert r.status_code == 200, r.text
-    sw = r.json()["data"]["swimlane"]
+    sw = r.json()["data"]["activity"]
 
     assert sw is not None
     assert sw["id"] == flow["id"]
@@ -132,63 +132,63 @@ async def test_get_flow_detail_order_is_zero(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_minimal_valid_returns_200(client):
-    """PUT with minimal valid payload (no actions) → 200, swimlane echoed back."""
+async def test_put_activity_minimal_valid_returns_200(client):
+    """PUT with minimal valid payload (no actions) → 200, activity echoed back."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Payment Flow")
-    payload = _minimal_swimlane_payload()
+    payload = _minimal_activity_payload()
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
     assert r.status_code == 200, r.text
 
     data = r.json()["data"]
-    assert data["swimlane"] is not None
+    assert data["activity"] is not None
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_blob_contains_flow_id(client):
-    """PUT swimlane → returned swimlane blob has id == str(flow_id)."""
+async def test_put_activity_blob_contains_flow_id(client):
+    """PUT activity → returned activity blob has id == str(flow_id)."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
-    payload = _minimal_swimlane_payload()
+    payload = _minimal_activity_payload()
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
     assert r.status_code == 200, r.text
 
-    swimlane = r.json()["data"]["swimlane"]
-    assert swimlane["id"] == flow["id"]
+    activity = r.json()["data"]["activity"]
+    assert activity["id"] == flow["id"]
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_echoes_title_and_lanes(client):
-    """PUT swimlane payload is echoed back in the response."""
+async def test_put_activity_echoes_title_and_lanes(client):
+    """PUT activity payload is echoed back in the response."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
-    payload = _minimal_swimlane_payload(title="Echo Test")
+    payload = _minimal_activity_payload(title="Echo Test")
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
     assert r.status_code == 200, r.text
 
-    swimlane = r.json()["data"]["swimlane"]
-    assert swimlane["title"] == "Echo Test"
-    assert len(swimlane["lanes"]) == 1
-    assert swimlane["lanes"][0]["id"] == "lane-1"
+    activity = r.json()["data"]["activity"]
+    assert activity["title"] == "Echo Test"
+    assert len(activity["lanes"]) == 1
+    assert activity["lanes"][0]["id"] == "lane-1"
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_invalid_action_lane_id_returns_422(client):
+async def test_put_activity_invalid_action_lane_id_returns_422(client):
     """PUT with action.lane_id not in lanes[].id → 422 from Pydantic validator."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
@@ -211,7 +211,7 @@ async def test_put_swimlane_invalid_action_lane_id_returns_422(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
@@ -219,7 +219,7 @@ async def test_put_swimlane_invalid_action_lane_id_returns_422(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_action_id_not_in_flow_returns_422(client):
+async def test_put_activity_action_id_not_in_flow_returns_422(client):
     """PUT with action.id that is a valid UUID but not in this flow's actions → 422."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
@@ -241,7 +241,7 @@ async def test_put_swimlane_action_id_not_in_flow_returns_422(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
@@ -249,7 +249,7 @@ async def test_put_swimlane_action_id_not_in_flow_returns_422(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_invalid_flow_source_returns_422(client):
+async def test_put_activity_invalid_flow_source_returns_422(client):
     """PUT with flow.source referencing unknown node id → 422."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
@@ -270,7 +270,7 @@ async def test_put_swimlane_invalid_flow_source_returns_422(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
@@ -278,7 +278,7 @@ async def test_put_swimlane_invalid_flow_source_returns_422(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_invalid_flow_target_returns_422(client):
+async def test_put_activity_invalid_flow_target_returns_422(client):
     """PUT with flow.target referencing unknown node id → 422."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
@@ -299,7 +299,7 @@ async def test_put_swimlane_invalid_flow_target_returns_422(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
@@ -307,8 +307,8 @@ async def test_put_swimlane_invalid_flow_target_returns_422(client):
 
 
 @pytest.mark.asyncio
-async def test_list_flows_has_title_and_order_no_swimlane(client):
-    """GET /flows list items contain title and order but do NOT have swimlane key."""
+async def test_list_flows_has_title_and_order_no_activity(client):
+    """GET /flows list items contain title and order but do NOT have activity key."""
     h, pid = await _setup(client)
     await _create_flow(client, h, pid, code="FL-01", name="Flow Alpha")
     await _create_flow(client, h, pid, code="FL-02", name="Flow Beta")
@@ -321,7 +321,7 @@ async def test_list_flows_has_title_and_order_no_swimlane(client):
     for flow_item in flows:
         assert "title" in flow_item, "list items must have 'title'"
         assert "order" in flow_item, "list items must have 'order'"
-        assert "swimlane" not in flow_item, "list items must NOT expose 'swimlane'"
+        assert "activity" not in flow_item, "list items must NOT expose 'activity'"
 
 
 @pytest.mark.asyncio
@@ -340,7 +340,7 @@ async def test_list_flows_title_matches_name(client):
 
 @pytest.mark.asyncio
 async def test_full_round_trip_put_then_get(client):
-    """Full round-trip: PUT swimlane using real action IDs → GET detail verifies
+    """Full round-trip: PUT activity using real action IDs → GET detail verifies
     persistence and that label is auto-populated from ProjectFlowAction.description."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid, name="Full Flow")
@@ -369,7 +369,7 @@ async def test_full_round_trip_put_then_get(client):
     }
 
     put_r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
@@ -378,7 +378,7 @@ async def test_full_round_trip_put_then_get(client):
     get_r = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
     assert get_r.status_code == 200, get_r.text
 
-    stored = get_r.json()["data"]["swimlane"]
+    stored = get_r.json()["data"]["activity"]
     assert stored is not None
     assert stored["id"] == flow["id"]
     assert stored["title"] == "Full Flow"
@@ -396,42 +396,42 @@ async def test_full_round_trip_put_then_get(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_is_idempotent(client):
-    """A second PUT fully replaces the swimlane blob."""
+async def test_put_activity_is_idempotent(client):
+    """A second PUT fully replaces the activity blob."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
-    first_payload = _minimal_swimlane_payload(title="First Version")
+    first_payload = _minimal_activity_payload(title="First Version")
     r1 = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=first_payload,
         headers=h,
     )
     assert r1.status_code == 200, r1.text
-    assert r1.json()["data"]["swimlane"]["title"] == "First Version"
+    assert r1.json()["data"]["activity"]["title"] == "First Version"
 
-    second_payload = _minimal_swimlane_payload(title="Second Version")
+    second_payload = _minimal_activity_payload(title="Second Version")
     r2 = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=second_payload,
         headers=h,
     )
     assert r2.status_code == 200, r2.text
-    assert r2.json()["data"]["swimlane"]["title"] == "Second Version"
+    assert r2.json()["data"]["activity"]["title"] == "Second Version"
 
     r3 = await client.get(f"{BASE}/projects/{pid}/flows/{flow['id']}", headers=h)
-    assert r3.json()["data"]["swimlane"]["title"] == "Second Version"
+    assert r3.json()["data"]["activity"]["title"] == "Second Version"
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_flow_id_not_found(client):
-    """PUT swimlane for a non-existent flow → 404."""
+async def test_put_activity_flow_id_not_found(client):
+    """PUT activity for a non-existent flow → 404."""
     h, pid = await _setup(client)
     fake_flow_id = str(uuid.uuid4())
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{fake_flow_id}/swimlane",
-        json=_minimal_swimlane_payload(),
+        f"{BASE}/projects/{pid}/flows/{fake_flow_id}/canvas-layout",
+        json=_minimal_activity_payload(),
         headers=h,
     )
     assert r.status_code == 404, r.text
@@ -454,8 +454,8 @@ async def test_get_flow_detail_wrong_project_returns_404(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_missing_required_fields_returns_422(client):
-    """PUT swimlane with missing required fields → 422."""
+async def test_put_activity_missing_required_fields_returns_422(client):
+    """PUT activity with missing required fields → 422."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
@@ -466,7 +466,7 @@ async def test_put_swimlane_missing_required_fields_returns_422(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=incomplete_payload,
         headers=h,
     )
@@ -474,7 +474,7 @@ async def test_put_swimlane_missing_required_fields_returns_422(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_action_with_valid_lane_id_succeeds(client):
+async def test_put_activity_action_with_valid_lane_id_succeeds(client):
     """PUT with real action IDs and valid lane references → 200, labels populated."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
@@ -501,12 +501,12 @@ async def test_put_swimlane_action_with_valid_lane_id_succeeds(client):
     }
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
         json=payload,
         headers=h,
     )
     assert r.status_code == 200, r.text
-    stored = r.json()["data"]["swimlane"]
+    stored = r.json()["data"]["activity"]
     assert len(stored["actions"]) == 2
     assert len(stored["flows"]) == 3
     # Labels auto-populated
@@ -526,13 +526,13 @@ async def test_get_flow_detail_unauthenticated_returns_401_or_403(client):
 
 
 @pytest.mark.asyncio
-async def test_put_swimlane_unauthenticated_returns_401_or_403(client):
-    """PUT /flows/{flow_id}/swimlane without auth → 401 or 403."""
+async def test_put_activity_unauthenticated_returns_401_or_403(client):
+    """PUT /flows/{flow_id}/canvas-layout without auth → 401 or 403."""
     h, pid = await _setup(client)
     flow = await _create_flow(client, h, pid)
 
     r = await client.put(
-        f"{BASE}/projects/{pid}/flows/{flow['id']}/swimlane",
-        json=_minimal_swimlane_payload(),
+        f"{BASE}/projects/{pid}/flows/{flow['id']}/canvas-layout",
+        json=_minimal_activity_payload(),
     )
     assert r.status_code in (401, 403), r.text
