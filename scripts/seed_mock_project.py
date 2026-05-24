@@ -1,6 +1,6 @@
 """
-Seed a realistic mock project: "Hệ thống quản lý đặt hàng nội bộ" (Internal Order Management).
-Full BRD data + detailed swimlane with all UML notation types.
+Seed a realistic mock project: "Hệ thống Quản lý Đặt hàng Trực tuyến" (Online Order Management).
+Full BRD data + 3 flows with swimlanes covering all UML notation types.
 
 Idempotent — deletes existing project with same slug before re-seeding.
 
@@ -20,7 +20,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, insert as sa_insert
 
 from app.database import async_session_factory
 from app.models.user import User
@@ -29,22 +29,21 @@ from app.models.project import Project
 from app.models.project_business import (
     ProjectGoal, ProjectGoalObjective, ProjectFlow, ProjectFlowAction,
     ProjectRule, ProjectConstraint, ProjectBusinessRequirement,
+    ProjectOutOfScope,
     GoalPriority, ConstraintType, ConstraintSeverity, RuleType,
+    OutOfScopeCategory,
     project_flow_action_rules,
 )
 from app.models.stakeholder import ActorType, InfluenceLevel, Stakeholder
 from app.models.actor import Actor
 from app.models.nfr import NFR, NFRCategory
-from app.models.requirements import (
-    Epic, Feature, Story, Task, AcceptanceCriteria,
-    Priority, ItemStatus,
-)
+from app.models.requirements import Priority
 from app.utils.swimlane import calculate_layout, layout_to_swimlane_dict, review_positions
 from app.config import settings
 
 
 ORG_SLUG = "fpt-software"
-PROJECT_SLUG = "internal-order-mgmt"
+PROJECT_SLUG = "online-order-mgmt"
 
 
 async def _get_or_create_org(session, owner: User) -> Organization:
@@ -87,40 +86,43 @@ async def seed():
         # ── Project ──────────────────────────────────────────────────────────
         project = Project(
             org_id=org.id,
-            name="Hệ thống quản lý đặt hàng nội bộ",
+            name="Hệ thống Quản lý Đặt hàng Trực tuyến",
             slug=PROJECT_SLUG,
             description=(
-                "Xây dựng nền tảng số hóa toàn bộ quy trình đặt hàng nội bộ từ phòng ban "
-                "đến kho và kế toán, thay thế hoàn toàn quy trình thủ công trên Excel."
+                "Nền tảng đặt hàng B2C dành cho chuỗi cửa hàng bán lẻ, "
+                "tích hợp quản lý tồn kho và thanh toán trực tuyến."
             ),
             context=(
-                "Công ty hiện xử lý ~500 đơn đặt hàng/tháng qua email + Excel, dẫn đến sai lệch "
-                "dữ liệu, mất tích hợp kế toán và trễ giao hàng trung bình 3 ngày. Dự án nằm trong "
-                "chương trình chuyển đổi số 2026 của FPT Software."
+                "Công ty hiện xử lý đơn hàng thủ công qua Zalo và điện thoại, gây sai sót và chậm trễ. "
+                "Cần số hoá toàn bộ quy trình từ đặt hàng đến giao hàng để cạnh tranh với các nền tảng "
+                "thương mại điện tử."
             ),
             problems=[
-                "Quy trình thủ công dẫn đến sai lệch tồn kho ~8% mỗi quý",
-                "Không có visibility real-time về trạng thái đơn hàng",
-                "Tích hợp kế toán mất 2-3 ngày thủ công mỗi tháng",
-                "Khó audit trail khi cần đối chiếu sai lệch",
+                "Tỷ lệ sai sót đơn hàng thủ công lên đến 12% mỗi tháng",
+                "Không có khả năng theo dõi trạng thái đơn theo thời gian thực",
+                "Dữ liệu tồn kho không đồng bộ giữa kênh online và offline",
+                "Thời gian xử lý trung bình 2 giờ/đơn do phụ thuộc nhân sự",
+                "Không có báo cáo tự động — mọi thứ đều làm thủ công trên Excel",
             ],
             proposed_solutions=[
-                "Hệ thống web app với phân quyền theo vai trò (Requester / Approver / Warehouse / Accountant)",
-                "Workflow tự động: tạo đơn → duyệt → xử lý kho → xuất hóa đơn",
-                "Tích hợp ERP qua REST API (SAP B1)",
-                "Dashboard analytics real-time cho quản lý",
+                "Xây dựng portal đặt hàng online với xác thực OTP và guest checkout",
+                "Tích hợp realtime inventory từ hệ thống ERP SAP S/4HANA nội bộ",
+                "Dashboard theo dõi đơn hàng cho khách hàng và nhân viên kho vận",
+                "Tự động hoá thông báo qua SMS và email tại từng milestone đơn hàng",
+                "Module báo cáo với export CSV và biểu đồ doanh thu theo thời gian",
             ],
             start_date=date(2026, 6, 1),
             end_date=date(2026, 12, 31),
-            budget=Decimal("850000000"),  # 850 triệu VND
+            budget=Decimal("450000000"),
             executive_summary=(
-                "Dự án số hóa quy trình đặt hàng nội bộ nhằm giảm 80% thời gian xử lý thủ công, "
-                "đạt độ chính xác tồn kho ≥ 99%, và tích hợp real-time với ERP trong Q4/2026."
+                "Hệ thống sẽ thay thế toàn bộ quy trình đặt hàng thủ công hiện tại. "
+                "Mục tiêu giảm sai sót xuống dưới 1%, rút ngắn thời gian xử lý đơn từ 2 giờ xuống 15 phút, "
+                "và tăng tỉ lệ chuyển đổi trực tuyến lên 35% trong 6 tháng đầu vận hành."
             ),
             roi_notes=(
-                "Tiết kiệm ước tính 240 giờ nhân công/tháng (≈ 96 triệu VND/năm). "
-                "Giảm sai lệch tồn kho từ 8% xuống <1% — tránh thiệt hại ≈ 200 triệu/năm. "
-                "Hoàn vốn dự kiến trong 6-8 tháng sau go-live."
+                "Dự kiến tiết kiệm 2 FTE nhân sự xử lý đơn hàng (~180 triệu VND/năm). "
+                "Chi phí đầu tư hoàn vốn sau 8 tháng vận hành. "
+                "Tăng trưởng doanh thu kỳ vọng 20% nhờ kênh online."
             ),
         )
         session.add(project)
@@ -129,305 +131,359 @@ async def seed():
         pid = project.id
 
         # ── Stakeholders ─────────────────────────────────────────────────────
-        sh_pm = Stakeholder(
-            project_id=pid, name="Nguyễn Minh Tuấn", role="Project Manager",
-            impact_area="Toàn dự án — lập kế hoạch, quản lý rủi ro",
-            influence_level=InfluenceLevel.high,
-            notes="Người phê duyệt ngân sách chính, cần báo cáo tiến độ tuần",
-        )
-        sh_po = Stakeholder(
-            project_id=pid, name="Trần Thị Lan", role="Product Owner / Trưởng phòng Mua hàng",
-            impact_area="Nghiệp vụ đặt hàng và duyệt chi",
+        sh_kh = Stakeholder(
+            project_id=pid, name="Khách hàng", role="Người mua hàng cuối",
+            impact_area="Trải nghiệm đặt hàng, thanh toán, theo dõi đơn",
             influence_level=InfluenceLevel.high, actor_type=ActorType.business_actor,
-            notes="Người xác nhận nghiệp vụ, tham gia UAT sprint 3",
+            notes="Đối tượng trực tiếp sử dụng hệ thống. Ưu tiên UX đơn giản, hỗ trợ mobile, thời gian checkout nhanh.",
         )
-        sh_wh = Stakeholder(
-            project_id=pid, name="Lê Văn Hùng", role="Trưởng kho",
-            impact_area="Quy trình nhận hàng, xuất hàng và kiểm kê",
+        sh_kv = Stakeholder(
+            project_id=pid, name="Bộ phận Kho vận", role="Quản lý tồn kho, đóng gói và xuất hàng",
+            impact_area="Kiểm tra tồn kho, xác nhận xuất kho, theo dõi giao hàng",
+            influence_level=InfluenceLevel.high, actor_type=ActorType.business_actor,
+            notes="Chịu trách nhiệm xác nhận hàng trước khi giao. Cần interface đơn giản, có thể dùng trên tablet.",
+        )
+        sh_tc = Stakeholder(
+            project_id=pid, name="Bộ phận Tài chính", role="Xử lý thanh toán, hoàn tiền và đối soát",
+            impact_area="Xác thực giao dịch, báo cáo doanh thu, quản lý hoàn tiền",
             influence_level=InfluenceLevel.medium, actor_type=ActorType.business_actor,
-            notes="Cần đào tạo UX do ít kinh nghiệm với web app",
+            notes="Cần audit trail đầy đủ cho mọi giao dịch. Yêu cầu báo cáo tài chính tự động theo ngày.",
         )
-        sh_acc = Stakeholder(
-            project_id=pid, name="Phạm Thị Hoa", role="Kế toán trưởng",
-            impact_area="Tích hợp ERP, xuất hóa đơn, báo cáo tài chính",
+        sh_ht = Stakeholder(
+            project_id=pid, name="Hệ thống", role="Backend tự động hoá — xử lý logic nghiệp vụ",
+            impact_area="Tích hợp ERP, xử lý đơn hàng, gửi thông báo tự động",
             influence_level=InfluenceLevel.high, actor_type=ActorType.business_actor,
-            notes="Yêu cầu audit log đầy đủ theo tiêu chuẩn ISO 27001",
+            notes="Actor ảo đại diện cho các bước tự động không cần can thiệp người dùng.",
+        )
+        sh_sm = Stakeholder(
+            project_id=pid, name="Sale Manager", role="Quản lý đội bán hàng và duyệt đơn đặc biệt",
+            impact_area="Phê duyệt đơn giá trị lớn, báo cáo doanh thu, quản lý khuyến mãi",
+            influence_level=InfluenceLevel.medium,
+            notes="Duyệt thủ công các đơn vượt giới hạn 100 triệu VND hoặc số lượng > 50 sản phẩm.",
+        )
+        sh_3pl = Stakeholder(
+            project_id=pid, name="Đội vận chuyển (3PL)", role="Đối tác giao hàng chặng cuối",
+            impact_area="Nhận hàng từ kho, giao đến khách, cập nhật trạng thái giao hàng",
+            influence_level=InfluenceLevel.medium,
+            notes="Tích hợp API tracking từ Giao Hàng Nhanh và Giao Hàng Tiết Kiệm.",
         )
         sh_it = Stakeholder(
-            project_id=pid, name="Đỗ Quang Minh", role="IT Infrastructure Lead",
-            impact_area="Hạ tầng triển khai, bảo mật, tích hợp ERP",
-            influence_level=InfluenceLevel.medium,
-            notes="Phụ trách review kiến trúc và go-live checklist",
+            project_id=pid, name="IT / DevOps", role="Quản trị hệ thống và vận hành hạ tầng",
+            impact_area="Uptime, bảo mật, tích hợp SAP ERP, monitoring",
+            influence_level=InfluenceLevel.low,
+            notes="Không trực tiếp sử dụng sản phẩm nhưng chịu trách nhiệm vận hành.",
         )
-        session.add_all([sh_pm, sh_po, sh_wh, sh_acc, sh_it])
+        session.add_all([sh_kh, sh_kv, sh_tc, sh_ht, sh_sm, sh_3pl, sh_it])
+        await session.flush()
+
+        # ── System Actors ─────────────────────────────────────────────────────
+        session.add_all([
+            Actor(project_id=pid, name="Khách hàng (Guest)",
+                  role_description="Người dùng chưa đăng ký tài khoản — chỉ có quyền đặt hàng và theo dõi đơn bằng mã đơn"),
+            Actor(project_id=pid, name="Khách hàng (Registered)",
+                  role_description="Người dùng đã có tài khoản — lưu lịch sử đơn hàng, địa chỉ giao hàng, thanh toán nhanh"),
+            Actor(project_id=pid, name="Nhân viên Kho vận",
+                  role_description="Staff kho — xác nhận tồn kho, đóng gói, cập nhật trạng thái xuất hàng"),
+            Actor(project_id=pid, name="Nhân viên Tài chính",
+                  role_description="Staff tài chính — xem và đối soát giao dịch, xử lý hoàn tiền"),
+            Actor(project_id=pid, name="Sale Manager",
+                  role_description="Quản lý bán hàng — phê duyệt đơn đặc biệt, xem toàn bộ báo cáo doanh thu"),
+            Actor(project_id=pid, name="System Admin",
+                  role_description="Quản trị viên hệ thống — cấu hình danh mục, quản lý user, xem log hệ thống"),
+        ])
         await session.flush()
 
         # ── Goals ─────────────────────────────────────────────────────────────
         goal1 = ProjectGoal(
             project_id=pid, order=1, priority=GoalPriority.high,
-            description="Giảm thời gian xử lý đơn hàng trung bình từ 3 ngày xuống còn 4 giờ",
-            success_metric="Lead time trung bình ≤ 4h đo trên 95% đơn trong tháng đầu sau go-live",
-            target_date=date(2026, 11, 30),
+            description="Tăng tỉ lệ chuyển đổi đặt hàng trực tuyến lên 35% trong vòng 6 tháng đầu vận hành",
+            success_metric="Tỉ lệ chuyển đổi >= 35% đo bằng Google Analytics, đánh giá mỗi tháng",
+            target_date=date(2026, 12, 31),
         )
         goal2 = ProjectGoal(
             project_id=pid, order=2, priority=GoalPriority.high,
-            description="Đạt độ chính xác tồn kho ≥ 99% và loại bỏ sai lệch do nhập liệu thủ công",
-            success_metric="Tỷ lệ chênh lệch tồn kho < 1% sau 3 tháng vận hành",
-            target_date=date(2026, 12, 31),
+            description="Giảm tỉ lệ sai sót xử lý đơn hàng từ 12% xuống dưới 1% trong quý đầu tiên",
+            success_metric="Số đơn sai / tổng đơn < 1%, đo hàng tuần qua dashboard nội bộ",
+            target_date=date(2026, 9, 30),
         )
         goal3 = ProjectGoal(
-            project_id=pid, order=3, priority=GoalPriority.medium,
-            description="Tích hợp real-time với SAP B1 ERP, loại bỏ nhập liệu kế toán thủ công",
-            success_metric="100% đơn đã duyệt đồng bộ ERP trong vòng 5 phút; 0 bản ghi nhập tay",
-            target_date=date(2026, 12, 15),
-        )
-        goal4 = ProjectGoal(
-            project_id=pid, order=4, priority=GoalPriority.low,
-            description="Cung cấp dashboard analytics để quản lý ra quyết định dựa trên dữ liệu",
-            success_metric="Tối thiểu 3 KPI dashboard được sử dụng hàng tuần bởi cấp quản lý",
+            project_id=pid, order=3, priority=GoalPriority.high,
+            description="Rút ngắn thời gian từ đặt hàng đến xác nhận giao xuống 15 phút cho 90% đơn hàng",
+            success_metric="P90 thời gian xử lý <= 15 phút, đo từ timestamp đặt hàng đến xác nhận kho",
             target_date=date(2026, 12, 31),
         )
-        session.add_all([goal1, goal2, goal3, goal4])
+        goal4 = ProjectGoal(
+            project_id=pid, order=4, priority=GoalPriority.medium,
+            description="Đạt Net Promoter Score (NPS) >= 50 sau 3 tháng vận hành",
+            success_metric="NPS >= 50 dựa trên khảo sát gửi tự động 7 ngày sau khi giao hàng thành công",
+            target_date=date(2026, 12, 31),
+        )
+        goal5 = ProjectGoal(
+            project_id=pid, order=5, priority=GoalPriority.medium,
+            description="Giảm chi phí vận hành đơn hàng xuống 30% trong năm đầu thông qua tự động hoá",
+            success_metric="Chi phí nhân sự xử lý đơn / tổng đơn giảm 30% so với baseline Q1-2026",
+            target_date=date(2026, 12, 31),
+        )
+        session.add_all([goal1, goal2, goal3, goal4, goal5])
         await session.flush()
 
-        # Objectives
-        objs = [
-            ProjectGoalObjective(goal_id=goal1.id, description="Chuẩn hóa form đặt hàng số, tích hợp catalog sản phẩm"),
-            ProjectGoalObjective(goal_id=goal1.id, description="Workflow duyệt 1-click qua email/app notification"),
-            ProjectGoalObjective(goal_id=goal1.id, description="Auto-assign đơn đến kho phụ trách theo category"),
-            ProjectGoalObjective(goal_id=goal2.id, description="Barcode scan khi nhận/xuất hàng tại kho"),
-            ProjectGoalObjective(goal_id=goal2.id, description="Reconciliation report tự động cuối ngày"),
-            ProjectGoalObjective(goal_id=goal3.id, description="REST API connector đến SAP B1 Purchase Order module"),
-            ProjectGoalObjective(goal_id=goal3.id, description="Retry queue cho các event đồng bộ thất bại"),
-            ProjectGoalObjective(goal_id=goal4.id, description="Biểu đồ trạng thái đơn theo thời gian thực"),
-            ProjectGoalObjective(goal_id=goal4.id, description="Báo cáo top nhà cung cấp theo giá trị đơn hàng"),
-        ]
-        session.add_all(objs)
+        session.add_all([
+            ProjectGoalObjective(goal_id=goal1.id, description="Rút ngắn luồng đặt hàng xuống tối đa 4 bước từ chọn sản phẩm đến thanh toán"),
+            ProjectGoalObjective(goal_id=goal1.id, description="Thời gian tải trang checkout dưới 2 giây trên mạng 4G"),
+            ProjectGoalObjective(goal_id=goal1.id, description="Hỗ trợ ít nhất 3 phương thức thanh toán: thẻ ngân hàng, ví điện tử và COD"),
+            ProjectGoalObjective(goal_id=goal1.id, description="Tỉ lệ bỏ giỏ hàng giảm xuống dưới 60%"),
+            ProjectGoalObjective(goal_id=goal2.id, description="Xác thực tự động tồn kho trước khi xác nhận bất kỳ đơn hàng nào"),
+            ProjectGoalObjective(goal_id=goal2.id, description="Thông báo tức thì cho kho vận khi phát sinh đơn mới"),
+            ProjectGoalObjective(goal_id=goal2.id, description="Lưu log đầy đủ mọi thay đổi trạng thái đơn với timestamp và user thực hiện"),
+            ProjectGoalObjective(goal_id=goal2.id, description="Tự động phát hiện và cảnh báo đơn hàng trùng lặp trong 5 phút"),
+            ProjectGoalObjective(goal_id=goal3.id, description="Tự động hoá bước kiểm tra tồn kho và xác thực thanh toán chạy song song"),
+            ProjectGoalObjective(goal_id=goal3.id, description="Cảnh báo tự động khi đơn chờ xử lý quá 10 phút"),
+            ProjectGoalObjective(goal_id=goal3.id, description="Tích hợp trực tiếp với ERP để lấy dữ liệu tồn kho không qua bước thủ công"),
+            ProjectGoalObjective(goal_id=goal4.id, description="Trang theo dõi đơn hàng realtime cho khách hàng"),
+            ProjectGoalObjective(goal_id=goal4.id, description="Giao diện mobile-first, hoạt động tốt trên màn hình 375px"),
+            ProjectGoalObjective(goal_id=goal4.id, description="Quy trình huỷ đơn và hoàn tiền hoàn toàn tự phục vụ trong app"),
+            ProjectGoalObjective(goal_id=goal5.id, description="Tự động hoá 100% các bước xử lý đơn hàng tiêu chuẩn"),
+            ProjectGoalObjective(goal_id=goal5.id, description="Giảm từ 3 FTE xuống còn 1 FTE nhân sự xử lý đơn"),
+            ProjectGoalObjective(goal_id=goal5.id, description="Tạo báo cáo tự động hàng ngày không cần can thiệp thủ công"),
+        ])
         await session.flush()
 
         # ── Constraints ───────────────────────────────────────────────────────
-        constraints = [
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.budget, severity=ConstraintSeverity.high,
-                description="Tổng ngân sách không vượt 850 triệu VND; không được phép request thêm ngân sách sau tháng 9",
-            ),
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.timeline, severity=ConstraintSeverity.high,
-                description="Go-live bắt buộc trước 31/12/2026 để kịp chu kỳ quyết toán Q4",
-            ),
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.technical, severity=ConstraintSeverity.medium,
-                description="Phải tương thích với SAP B1 9.3 — không thể nâng cấp ERP trong vòng dự án",
-            ),
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.technical, severity=ConstraintSeverity.medium,
-                description="Stack backend giới hạn ở Python/FastAPI + PostgreSQL theo chuẩn nội bộ FPT",
-            ),
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.resource, severity=ConstraintSeverity.medium,
-                description="Team tối đa 6 người (2 BE, 2 FE, 1 QA, 1 DevOps); không được outsource",
-            ),
-            ProjectConstraint(
-                project_id=pid, type=ConstraintType.regulatory, severity=ConstraintSeverity.high,
-                description="Dữ liệu tài chính phải lưu trữ tối thiểu 5 năm theo Luật kế toán 88/2015/QH13",
-            ),
-        ]
-        session.add_all(constraints)
+        session.add_all([
+            ProjectConstraint(project_id=pid, type=ConstraintType.budget, severity=ConstraintSeverity.high,
+                description="Tổng ngân sách dự án không vượt 450 triệu VND, bao gồm chi phí phát triển, hạ tầng cloud 24 tháng và license phần mềm bên thứ ba"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.timeline, severity=ConstraintSeverity.high,
+                description="Phiên bản MVP phải go-live trước ngày 01/09/2026 để sẵn sàng cho mùa mua sắm cuối năm Q4-2026"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.technical, severity=ConstraintSeverity.high,
+                description="Phải tích hợp với ERP SAP S/4HANA hiện tại thông qua REST API được cung cấp bởi đội IT nội bộ — không được thay thế hoặc bypass ERP"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.technical, severity=ConstraintSeverity.high,
+                description="Database phải là PostgreSQL 15+. Không được dùng NoSQL cho dữ liệu giao dịch chính. Backup tự động hàng ngày và giữ 30 ngày."),
+            ProjectConstraint(project_id=pid, type=ConstraintType.regulatory, severity=ConstraintSeverity.high,
+                description="Tuân thủ Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân — có cơ chế xin đồng ý, quyền xoá tài khoản và audit log truy cập dữ liệu cá nhân"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.regulatory, severity=ConstraintSeverity.medium,
+                description="Lưu trữ dữ liệu giao dịch tài chính tối thiểu 5 năm theo quy định thuế của Bộ Tài chính"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.resource, severity=ConstraintSeverity.medium,
+                description="Đội phát triển tối đa 5 người (3 backend, 1 frontend, 1 QA) — không thể mở rộng trong năm 2026 do hạn chế ngân sách HR"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.technical, severity=ConstraintSeverity.medium,
+                description="Hệ thống phải đạt uptime 99.5% theo SLA với nhà cung cấp hosting. RTO <= 1 giờ, RPO <= 15 phút."),
+            ProjectConstraint(project_id=pid, type=ConstraintType.budget, severity=ConstraintSeverity.low,
+                description="Chi phí vận hành hàng tháng (hosting, SMS, email, cổng thanh toán) không vượt 8 triệu VND trong 12 tháng đầu"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.risk, severity=ConstraintSeverity.high,
+                description="Tích hợp ERP SAP S/4HANA phụ thuộc đội IT nội bộ — nếu API thay đổi hoặc đội IT bận dự án khác sẽ làm trễ tiến độ tối thiểu 2 sprint"),
+            ProjectConstraint(project_id=pid, type=ConstraintType.risk, severity=ConstraintSeverity.medium,
+                description="Cổng thanh toán VNPay/MoMo có thể thay đổi chính sách phí hoặc API trong thời gian dự án — cần dự phòng chi phí và thời gian tích hợp lại"),
+        ])
+        await session.flush()
+
+        # ── Out of Scope ───────────────────────────────────────────────────────
+        session.add_all([
+            ProjectOutOfScope(project_id=pid, order=1, category=OutOfScopeCategory.feature,
+                description="Tính năng quản lý nhà cung cấp (vendor management) — đàm phán hợp đồng, đánh giá nhà cung cấp sẽ được xây dựng ở giai đoạn 2"),
+            ProjectOutOfScope(project_id=pid, order=2, category=OutOfScopeCategory.integration,
+                description="Tích hợp với hệ thống kế toán nội bộ — đội kế toán vẫn xuất CSV và nhập thủ công vào phần mềm kế toán hiện tại"),
+            ProjectOutOfScope(project_id=pid, order=3, category=OutOfScopeCategory.integration,
+                description="Tích hợp với các sàn thương mại điện tử (Shopee, Lazada, Tiki) — chỉ phục vụ kênh website riêng của công ty"),
+            ProjectOutOfScope(project_id=pid, order=4, category=OutOfScopeCategory.user_group,
+                description="Khách hàng doanh nghiệp (B2B) với hợp đồng khung và hạn mức tín dụng — giai đoạn 1 chỉ phục vụ khách hàng cá nhân B2C"),
+            ProjectOutOfScope(project_id=pid, order=5, category=OutOfScopeCategory.process,
+                description="Quy trình đấu thầu mua hàng và phê duyệt nhà cung cấp mới — chỉ hỗ trợ đặt hàng từ danh mục sản phẩm đã được duyệt sẵn"),
+            ProjectOutOfScope(project_id=pid, order=6, category=OutOfScopeCategory.technical,
+                description="Mobile native app (iOS/Android) — giai đoạn 1 chỉ hỗ trợ responsive web, tối ưu cho màn hình 375px trở lên"),
+            ProjectOutOfScope(project_id=pid, order=7, category=OutOfScopeCategory.feature,
+                description="Hệ thống quản lý kho nâng cao (WMS) bao gồm sơ đồ kho, vị trí lưu trữ và tối ưu lộ trình picking — nằm ngoài phạm vi đợt này"),
+        ])
         await session.flush()
 
         # ── Business Requirements ──────────────────────────────────────────────
-        brs = [
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.high, is_critical=True,
-                description="Hệ thống phải hỗ trợ phân quyền 4 vai trò: Requester, Approver, Warehouse Staff, Accountant",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.high, is_critical=True,
-                description="Đơn hàng phải qua ít nhất 1 bước duyệt (Approver) trước khi chuyển kho",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.high, is_critical=True,
-                description="Mọi thay đổi trạng thái đơn hàng phải ghi audit log với timestamp và user thực hiện",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.high, is_critical=False,
-                description="Gửi thông báo email/in-app tại các bước: đơn mới, duyệt/từ chối, kho xác nhận, hoàn thành",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.medium, is_critical=False,
-                description="Hỗ trợ đặt hàng theo catalog sản phẩm với đơn giá tham chiếu từ nhà cung cấp ưu tiên",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.medium, is_critical=False,
-                description="Requester có thể theo dõi real-time trạng thái đơn đã tạo",
-            ),
-            ProjectBusinessRequirement(
-                project_id=pid, priority=GoalPriority.low, is_critical=False,
-                description="Cho phép đính kèm file (quotation, invoice) tối đa 10MB/file, tối đa 5 file/đơn",
-            ),
-        ]
-        session.add_all(brs)
+        session.add_all([
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=True,
+                description="Khách hàng có thể đặt hàng mà không cần tạo tài khoản thông qua hình thức guest checkout với chỉ email và số điện thoại"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=True,
+                description="Hệ thống kiểm tra tồn kho theo thời gian thực từ ERP trước khi xác nhận bất kỳ đơn hàng nào"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=False,
+                description="Khách hàng nhận thông báo tự động qua SMS và email tại các mốc: đặt thành công, kho xác nhận, đang giao, đã giao"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=True,
+                description="Hỗ trợ thanh toán qua VNPay, MoMo, ZaloPay và hình thức thanh toán khi nhận hàng COD"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.medium, is_critical=False,
+                description="Cho phép khách hàng tự huỷ đơn trong vòng 30 phút kể từ khi đặt nếu kho chưa xác nhận"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=False,
+                description="Cung cấp trang theo dõi đơn hàng realtime có thể truy cập bằng mã đơn mà không cần đăng nhập"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.medium, is_critical=False,
+                description="Admin có thể xem và xuất báo cáo đơn hàng theo ngày tuần tháng dưới dạng CSV"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.low, is_critical=False,
+                description="Hệ thống tự động đề xuất sản phẩm thay thế khi sản phẩm đã chọn hết hàng"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.medium, is_critical=True,
+                description="Đơn hàng vượt giới hạn 100 triệu VND hoặc 50 sản phẩm phải được sale manager phê duyệt trước khi xử lý"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.medium, is_critical=False,
+                description="Hỗ trợ áp dụng mã giảm giá và voucher tại bước checkout với validation realtime"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.low, is_critical=False,
+                description="Khách hàng đăng ký có thể lưu tối đa 5 địa chỉ giao hàng và chọn nhanh khi đặt hàng"),
+            ProjectBusinessRequirement(project_id=pid, priority=GoalPriority.high, is_critical=True,
+                description="Hệ thống tự động huỷ đơn và hoàn trả tồn kho nếu thanh toán online không hoàn tất trong 15 phút"),
+        ])
         await session.flush()
 
         # ── Business Rules ─────────────────────────────────────────────────────
-        rule_approval = ProjectRule(
-            project_id=pid, type=RuleType.policy,
-            rule_def="Đơn hàng có giá trị > 50 triệu VND phải có chữ ký duyệt của 2 cấp quản lý",
-            is_dynamic=False, source="Quy chế tài chính nội bộ FPT-TC-2024-07",
-        )
-        rule_supplier = ProjectRule(
-            project_id=pid, type=RuleType.constraint,
-            rule_def="Chỉ được đặt hàng từ nhà cung cấp trong danh sách phê duyệt (approved vendor list)",
-            is_dynamic=False, source="Chính sách mua hàng FPT-MH-2025-03",
-        )
-        rule_budget_check = ProjectRule(
-            project_id=pid, type=RuleType.validation,
-            rule_def="Tổng giá trị đơn hàng phòng ban trong tháng không được vượt ngân sách phân bổ",
-            is_dynamic=True, source="Hệ thống ERP SAP B1 — cost center budget",
-        )
         rule_stock = ProjectRule(
-            project_id=pid, type=RuleType.process,
-            rule_def="Khi nhận hàng, số lượng thực nhận phải được xác nhận trong vòng 24h; quá hạn tự động escalate",
-            is_dynamic=False, source="SLA kho nội bộ",
+            project_id=pid, type=RuleType.validation, is_dynamic=True,
+            rule_def="Đơn hàng chỉ được xác nhận khi số lượng tồn kho trong ERP >= số lượng đặt. Nếu thiếu hàng hệ thống từ chối ngay và thông báo số lượng còn lại cho khách.",
+            source="Nghiệp vụ kho vận — tài liệu WH-001 v2.0",
         )
-        rule_erp_sync = ProjectRule(
-            project_id=pid, type=RuleType.process,
-            rule_def="Sau khi đơn hàng chuyển sang trạng thái 'Đã duyệt', hệ thống tự động tạo Purchase Order trên SAP B1",
-            is_dynamic=False, source="Tích hợp ERP design doc v1.2",
-        )
-        rule_tax = ProjectRule(
-            project_id=pid, type=RuleType.regulation,
-            rule_def="Hóa đơn VAT phải được upload và liên kết với đơn hàng trong vòng 30 ngày theo Thông tư 78/2021/TT-BTC",
-            is_dynamic=False, source="Thông tư 78/2021/TT-BTC",
+        rule_payment = ProjectRule(
+            project_id=pid, type=RuleType.validation, is_dynamic=False,
+            rule_def="Giao dịch thanh toán phải được cổng thanh toán xác nhận thành công (mã trả về 00) trước khi hệ thống gửi lệnh xuất kho. Timeout 30 giây — nếu quá hạn đơn chuyển sang pending_payment và retry tối đa 2 lần.",
+            source="Thoả thuận tích hợp VNPay Merchant v2.1",
         )
         rule_cancel = ProjectRule(
-            project_id=pid, type=RuleType.policy,
-            rule_def="Đơn hàng chỉ có thể hủy khi chưa kho xác nhận xuất; sau đó cần approval từ Approver",
-            is_dynamic=False, source="Quy trình mua hàng nội bộ v3",
+            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            rule_def="Khách hàng chỉ được huỷ đơn trong 30 phút kể từ thời điểm đặt và đơn phải chưa được kho xác nhận (status = confirmed). Sau khi kho xác nhận chỉ sale manager hoặc admin mới có quyền huỷ và phải ghi lý do.",
+            source="Chính sách bán hàng v1.0 — phòng Kinh doanh",
         )
-        session.add_all([rule_approval, rule_supplier, rule_budget_check, rule_stock, rule_erp_sync, rule_tax, rule_cancel])
-        await session.flush()
-
-        # ── Actors (functional) ───────────────────────────────────────────────
-        actor_requester = Actor(
-            project_id=pid, name="Requester",
-            role_description="Nhân viên/phòng ban tạo yêu cầu đặt hàng. Có thể xem trạng thái đơn do mình tạo.",
+        rule_order_limit = ProjectRule(
+            project_id=pid, type=RuleType.constraint, is_dynamic=False,
+            rule_def="Mỗi đơn hàng không vượt quá 50 sản phẩm (SKU) hoặc tổng giá trị 100 triệu VND. Đơn vượt giới hạn được chuyển sang trạng thái pending_approval và sale manager nhận thông báo trong 5 phút.",
+            source="Quy định quản lý rủi ro tín dụng — phòng Tài chính",
         )
-        actor_approver = Actor(
-            project_id=pid, name="Approver",
-            role_description="Quản lý cấp trung phê duyệt hoặc từ chối đơn hàng. Nhận notification khi có đơn chờ duyệt.",
+        rule_shipping = ProjectRule(
+            project_id=pid, type=RuleType.calculation, is_dynamic=True,
+            rule_def="Phí giao hàng = 0 nếu tổng giá trị đơn >= 500.000 VND. Dưới ngưỡng: 30.000 VND nội thành, 50.000 VND ngoại thành và 80.000 VND tỉnh thành khác. Tính theo địa chỉ giao hàng.",
+            source="Bảng phí vận chuyển 3PL Q1-2026",
         )
-        actor_warehouse = Actor(
-            project_id=pid, name="Warehouse Staff",
-            role_description="Nhân viên kho xử lý đơn đã duyệt: xác nhận nhận hàng, cập nhật tồn kho.",
+        rule_auto_cancel = ProjectRule(
+            project_id=pid, type=RuleType.process, is_dynamic=False,
+            rule_def="Đơn hàng thanh toán online tự động huỷ và hoàn trả tồn kho ERP nếu không nhận được xác nhận thanh toán trong 15 phút kể từ lúc tạo đơn. Khách nhận email thông báo huỷ và có thể đặt lại.",
+            source="Quy trình xử lý đơn hàng v2 — phòng Vận hành",
         )
-        actor_accountant = Actor(
-            project_id=pid, name="Accountant",
-            role_description="Kế toán xử lý hóa đơn tài chính, đồng bộ ERP và xuất báo cáo tài chính.",
+        rule_otp = ProjectRule(
+            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            rule_def="Hệ thống cho phép tối đa 3 lần nhập sai OTP xác thực checkout trong 10 phút. Quá giới hạn sẽ khoá session 30 phút và gửi cảnh báo đến email đăng ký.",
+            source="Chính sách bảo mật tài khoản — phòng IT",
         )
-        session.add_all([actor_requester, actor_approver, actor_warehouse, actor_accountant])
+        rule_voucher = ProjectRule(
+            project_id=pid, type=RuleType.constraint, is_dynamic=True,
+            rule_def="Mã giảm giá chỉ được áp dụng một lần mỗi tài khoản. Voucher một lần sử dụng bị vô hiệu hoá ngay sau khi áp dụng thành công. Không áp dụng đồng thời nhiều mã giảm giá cho một đơn.",
+            source="Quy định chương trình khuyến mãi — phòng Marketing",
+        )
+        rule_refund = ProjectRule(
+            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            rule_def="Hoàn tiền cho đơn huỷ sau khi thanh toán: hoàn 100% nếu huỷ trong 30 phút và kho chưa xác nhận. Hoàn 90% nếu kho đã xác nhận nhưng chưa xuất hàng. Không hoàn tiền nếu hàng đã xuất kho.",
+            source="Chính sách hoàn tiền v1.2 — phòng Tài chính",
+        )
+        session.add_all([rule_stock, rule_payment, rule_cancel, rule_order_limit,
+                         rule_shipping, rule_auto_cancel, rule_otp, rule_voucher, rule_refund])
         await session.flush()
 
         # ── NFRs ──────────────────────────────────────────────────────────────
-        nfrs = [
+        session.add_all([
             NFR(project_id=pid, category=NFRCategory.performance, priority=Priority.high,
-                description="API response time < 500ms ở P95 với load 200 concurrent users"),
+                description="Trang checkout và trang danh sách sản phẩm phải load dưới 2 giây với 500 concurrent users trên kết nối 4G (20Mbps)"),
+            NFR(project_id=pid, category=NFRCategory.performance, priority=Priority.high,
+                description="API xác nhận tồn kho phải phản hồi trong 500ms ở P99 dưới tải 1000 requests/giây"),
             NFR(project_id=pid, category=NFRCategory.performance, priority=Priority.medium,
-                description="Trang danh sách đơn hàng load < 2s với 10,000 bản ghi"),
-            NFR(project_id=pid, category=NFRCategory.security, priority=Priority.critical,
-                description="Xác thực JWT HS256; session hết hạn sau 8h; refresh token 30 ngày"),
+                description="Hệ thống xử lý được tối thiểu 200 đơn hàng đồng thời mà không degradation hiệu năng"),
             NFR(project_id=pid, category=NFRCategory.security, priority=Priority.high,
-                description="Mọi API endpoint phải có RBAC theo 4 vai trò; kiểm tra lúc runtime"),
-            NFR(project_id=pid, category=NFRCategory.reliability, priority=Priority.high,
-                description="Uptime ≥ 99.5% trong giờ hành chính (8h-18h, T2-T6)"),
-            NFR(project_id=pid, category=NFRCategory.reliability, priority=Priority.medium,
-                description="Retry tự động tối đa 3 lần với exponential backoff cho ERP sync"),
+                description="Toàn bộ API endpoints phải yêu cầu xác thực JWT. Token hết hạn sau 24 giờ. Refresh token hết hạn sau 30 ngày."),
+            NFR(project_id=pid, category=NFRCategory.security, priority=Priority.high,
+                description="Thông tin thẻ thanh toán không được lưu trên hệ thống — tokenize qua cổng thanh toán. Tuân thủ PCI DSS Level 2."),
+            NFR(project_id=pid, category=NFRCategory.security, priority=Priority.high,
+                description="Mã hoá toàn bộ dữ liệu cá nhân nhạy cảm (số điện thoại, địa chỉ) ở trạng thái lưu trữ bằng AES-256"),
+            NFR(project_id=pid, category=NFRCategory.security, priority=Priority.medium,
+                description="Rate limiting: tối đa 100 requests/phút/IP cho các endpoint công khai. Tối đa 20 requests/phút cho login và OTP."),
             NFR(project_id=pid, category=NFRCategory.usability, priority=Priority.medium,
-                description="Giao diện đáp ứng Mobile (≥ 768px); nhân viên kho dùng máy tính bảng"),
+                description="Giao diện khách hàng phải đạt điểm Lighthouse Accessibility >= 90. Hỗ trợ đầy đủ keyboard navigation."),
+            NFR(project_id=pid, category=NFRCategory.usability, priority=Priority.high,
+                description="Toàn bộ luồng đặt hàng phải hoạt động trên màn hình 375px (iPhone SE) không có horizontal scroll"),
+            NFR(project_id=pid, category=NFRCategory.reliability, priority=Priority.high,
+                description="Uptime hệ thống >= 99.5% mỗi tháng. Bảo trì định kỳ phải thực hiện trong khung 02:00–04:00 và thông báo trước 48 giờ."),
+            NFR(project_id=pid, category=NFRCategory.reliability, priority=Priority.high,
+                description="Recovery Time Objective (RTO) <= 1 giờ. Recovery Point Objective (RPO) <= 15 phút. Backup tự động hàng ngày lúc 02:00."),
             NFR(project_id=pid, category=NFRCategory.compliance, priority=Priority.high,
-                description="Audit log bất biến (append-only), lưu trữ tối thiểu 5 năm theo Luật kế toán"),
+                description="Ghi audit log đầy đủ cho mọi thao tác tạo, sửa, xoá đơn hàng và thanh toán — bao gồm user_id, timestamp, IP và action. Lưu trữ 5 năm."),
+            NFR(project_id=pid, category=NFRCategory.compliance, priority=Priority.medium,
+                description="Cung cấp tính năng xuất và xoá dữ liệu cá nhân theo yêu cầu của người dùng trong vòng 72 giờ theo Nghị định 13/2023/NĐ-CP"),
             NFR(project_id=pid, category=NFRCategory.maintainability, priority=Priority.medium,
-                description="Code coverage ≥ 80%; pipeline CI/CD tự động với gate kiểm tra coverage"),
-        ]
-        session.add_all(nfrs)
+                description="Unit test coverage >= 80% cho toàn bộ business logic. Integration test tự động chạy trên CI cho mọi PR."),
+            NFR(project_id=pid, category=NFRCategory.maintainability, priority=Priority.low,
+                description="Thời gian triển khai phiên bản mới <= 15 phút với zero-downtime deployment sử dụng blue-green strategy"),
+        ])
         await session.flush()
 
         # ── Flows ─────────────────────────────────────────────────────────────
-        # Flow 1: Main order processing flow — full swimlane with all notation types
         flow1 = ProjectFlow(
             project_id=pid, code="FLOW-001",
-            name="Quy trình đặt hàng và duyệt",
-            description=(
-                "Luồng chính từ khi Requester tạo đơn đến khi đơn được duyệt hoặc từ chối, "
-                "bao gồm kiểm tra ngân sách và đồng bộ ERP sau duyệt."
-            ),
+            name="Quy trình Đặt hàng",
+            description="Luồng chính từ khi khách hàng chọn sản phẩm đến khi đơn hàng được xác nhận và chuyển sang kho vận xử lý",
         )
         flow2 = ProjectFlow(
             project_id=pid, code="FLOW-002",
-            name="Quy trình xử lý kho và hoàn tất",
-            description=(
-                "Luồng xử lý tại kho sau khi đơn được duyệt: nhận hàng, kiểm tra chất lượng, "
-                "cập nhật tồn kho, xác nhận hoàn thành."
-            ),
+            name="Quy trình Xử lý Đơn hàng",
+            description="Luồng xử lý nội bộ sau khi đơn được đặt thành công — kiểm tra kho và xác thực thanh toán chạy song song để giảm thời gian xử lý",
         )
-        session.add_all([flow1, flow2])
+        flow3 = ProjectFlow(
+            project_id=pid, code="FLOW-003",
+            name="Quy trình Xử lý Khiếu nại và Hoàn tiền",
+            description="Luồng xử lý khi khách hàng có khiếu nại sau giao hàng — giao hàng sai, hàng lỗi hoặc không nhận được hàng",
+        )
+        session.add_all([flow1, flow2, flow3])
         await session.flush()
 
-        # ── Flow 1 Actions — Requester + Approver lanes, all notation types ──
-        # Stakeholders used as actors in swimlane
+        # ── Flow 1 Actions ────────────────────────────────────────────────────
+        # Lane mapping: A1-A2,A5-A7,A9 → lane-kh; A3-A4,A8 → lane-ht; A10 → lane-kv
         actions_f1 = [
-            ProjectFlowAction(flow_id=flow1.id, order=1, actor_id=sh_po.id,
-                description="Nhân viên điền form đặt hàng: chọn sản phẩm từ catalog, số lượng, nhà cung cấp ưu tiên"),
-            ProjectFlowAction(flow_id=flow1.id, order=2, actor_id=sh_po.id,
-                description="Kiểm tra nhà cung cấp có trong danh sách phê duyệt (approved vendor list) không"),
-            ProjectFlowAction(flow_id=flow1.id, order=3, actor_id=sh_po.id,
-                description="Tách đơn song song: gửi đơn lên hệ thống và đồng thời gửi email notification cho Approver"),
-            ProjectFlowAction(flow_id=flow1.id, order=4, actor_id=sh_acc.id,
-                description="Kiểm tra ngân sách phòng ban còn lại — nếu vượt hạn mức thì từ chối tự động"),
-            ProjectFlowAction(flow_id=flow1.id, order=5, actor_id=sh_pm.id,
-                description="Hội tụ kết quả kiểm tra ngân sách và xác nhận notification đã gửi trước khi Approver duyệt"),
-            ProjectFlowAction(flow_id=flow1.id, order=6, actor_id=sh_pm.id,
-                description="Approver xem xét đơn hàng: kiểm tra thông tin sản phẩm, nhà cung cấp, và ngân sách"),
-            ProjectFlowAction(flow_id=flow1.id, order=7, actor_id=sh_pm.id,
-                description="Nếu giá trị đơn > 50 triệu VND thì yêu cầu duyệt cấp 2; nếu không thì duyệt trực tiếp"),
-            ProjectFlowAction(flow_id=flow1.id, order=8, actor_id=sh_pm.id,
-                description="Approver ghi chú quyết định (duyệt hoặc từ chối) và xác nhận trên hệ thống"),
-            ProjectFlowAction(flow_id=flow1.id, order=9, actor_id=sh_acc.id,
-                description="Sau khi duyệt, hợp nhất luồng xử lý và cập nhật trạng thái đơn thành 'Đã duyệt'"),
-            ProjectFlowAction(flow_id=flow1.id, order=10, actor_id=sh_acc.id,
-                description="Tự động tạo Purchase Order trên SAP B1 và lưu mã PO vào hệ thống"),
+            ProjectFlowAction(flow_id=flow1.id, order=1,  actor_id=sh_kh.id,
+                description="Khách hàng đăng nhập hoặc tiếp tục với tư cách khách"),
+            ProjectFlowAction(flow_id=flow1.id, order=2,  actor_id=sh_kh.id,
+                description="Khách hàng tìm kiếm và chọn sản phẩm"),
+            ProjectFlowAction(flow_id=flow1.id, order=3,  actor_id=sh_ht.id,
+                description="Hệ thống kiểm tra tồn kho theo thời gian thực từ ERP"),
+            ProjectFlowAction(flow_id=flow1.id, order=4,  actor_id=sh_ht.id,
+                description="Hệ thống thông báo hết hàng và gợi ý sản phẩm thay thế"),
+            ProjectFlowAction(flow_id=flow1.id, order=5,  actor_id=sh_kh.id,
+                description="Khách hàng thêm sản phẩm vào giỏ hàng"),
+            ProjectFlowAction(flow_id=flow1.id, order=6,  actor_id=sh_kh.id,
+                description="Khách hàng điền địa chỉ giao hàng và chọn phương thức thanh toán"),
+            ProjectFlowAction(flow_id=flow1.id, order=7,  actor_id=sh_kh.id,
+                description="Hệ thống tính phí giao hàng và hiển thị tổng đơn hàng"),
+            ProjectFlowAction(flow_id=flow1.id, order=8,  actor_id=sh_ht.id,
+                description="Thông tin đơn hàng tổng hợp trước thanh toán"),
+            ProjectFlowAction(flow_id=flow1.id, order=9,  actor_id=sh_kh.id,
+                description="Khách hàng xác nhận đặt hàng và hoàn tất thanh toán"),
+            ProjectFlowAction(flow_id=flow1.id, order=10, actor_id=sh_kv.id,
+                description="Kho vận nhận lệnh xuất kho và bắt đầu chuẩn bị hàng"),
         ]
         session.add_all(actions_f1)
         await session.flush()
 
-        # Link rules to flow 1 actions via M2M association table
-        from sqlalchemy import insert as sa_insert
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f1[1].id, rule_id=rule_supplier.id))
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f1[3].id, rule_id=rule_budget_check.id))
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f1[6].id, rule_id=rule_approval.id))
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f1[9].id, rule_id=rule_erp_sync.id))
+        a = actions_f1
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[2].id,  rule_id=rule_stock.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[4].id,  rule_id=rule_order_limit.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[5].id,  rule_id=rule_voucher.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[6].id,  rule_id=rule_shipping.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[8].id,  rule_id=rule_otp.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[8].id,  rule_id=rule_auto_cancel.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=a[9].id,  rule_id=rule_payment.id))
         await session.flush()
 
-        # ── Flow 1 Swimlane via pipeline ──────────────────────────────────────
-        a = actions_f1
+        # ── Flow 1 Swimlane ───────────────────────────────────────────────────
+        f1_lane_ids = ["lane-kh", "lane-ht", "lane-kv"]
         f1_lane_titles = {
-            f"lane-{sh_po.id}": "Requester (Phòng ban)",
-            f"lane-{sh_acc.id}": "Kế toán / Hệ thống",
-            f"lane-{sh_pm.id}":  "Approver (Quản lý)",
+            "lane-kh": "Khách hàng",
+            "lane-ht": "Hệ thống",
+            "lane-kv": "Kho vận",
         }
         f1_input = [
-            {"id": str(a[0].id), "lane_id": f"lane-{sh_po.id}",  "notation": "action",     "order": 1, "label": a[0].description},
-            {"id": str(a[1].id), "lane_id": f"lane-{sh_po.id}",  "notation": "decision",   "order": 2, "label": "Nhà cung cấp có trong danh sách phê duyệt?"},
-            {"id": str(a[2].id), "lane_id": f"lane-{sh_po.id}",  "notation": "fork",       "order": 3, "label": "Fork: Gửi đơn & Gửi notification song song"},
-            {"id": str(a[3].id), "lane_id": f"lane-{sh_acc.id}", "notation": "decision",   "order": 4, "label": "Ngân sách còn đủ?"},
-            {"id": str(a[4].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "join",       "order": 5, "label": "Join: Đồng bộ kết quả kiểm tra ngân sách"},
-            {"id": str(a[5].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "action",     "order": 6, "label": a[5].description},
-            {"id": str(a[6].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "decision",   "order": 7, "label": "Giá trị > 50 triệu VND?"},
-            {"id": str(a[7].id), "lane_id": f"lane-{sh_pm.id}",  "notation": "action",     "order": 8, "label": a[7].description},
-            {"id": str(a[8].id), "lane_id": f"lane-{sh_acc.id}", "notation": "merge",      "order": 9, "label": "Merge: Hợp nhất luồng duyệt"},
-            {"id": str(a[9].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode", "order": 10, "label": "SAP B1 Purchase Order [đã tạo]"},
+            {"id": str(a[0].id),  "lane_id": "lane-kh", "notation": "action",     "order": 1,  "label": "Đăng nhập hoặc guest checkout"},
+            {"id": str(a[1].id),  "lane_id": "lane-kh", "notation": "action",     "order": 2,  "label": "Tìm kiếm và chọn sản phẩm"},
+            {"id": str(a[2].id),  "lane_id": "lane-ht", "notation": "decision",   "order": 3,  "label": None},
+            {"id": str(a[3].id),  "lane_id": "lane-ht", "notation": "action",     "order": 4,  "label": "Thông báo hết hàng & gợi ý"},
+            {"id": str(a[4].id),  "lane_id": "lane-kh", "notation": "action",     "order": 5,  "label": "Thêm vào giỏ hàng"},
+            {"id": str(a[5].id),  "lane_id": "lane-kh", "notation": "merge",      "order": 6,  "label": None},
+            {"id": str(a[6].id),  "lane_id": "lane-kh", "notation": "action",     "order": 7,  "label": "Điền địa chỉ và chọn thanh toán"},
+            {"id": str(a[7].id),  "lane_id": "lane-ht", "notation": "objectNode", "order": 8,  "label": "Thông tin đơn hàng"},
+            {"id": str(a[8].id),  "lane_id": "lane-kh", "notation": "action",     "order": 9,  "label": "Xác nhận và thanh toán"},
+            {"id": str(a[9].id),  "lane_id": "lane-kv", "notation": "action",     "order": 10, "label": "Nhận lệnh và chuẩn bị xuất kho"},
         ]
-        layout1 = calculate_layout(f1_input, list(f1_lane_titles.keys()))
+        layout1 = calculate_layout(f1_input, f1_lane_ids)
         layout1 = await review_positions(
             layout1,
             access_key=settings.aws_access_key_id,
@@ -439,77 +495,73 @@ async def seed():
         for lane in flow1.swimlane["lanes"]:
             lane["title"] = f1_lane_titles.get(lane["id"], lane["id"])
 
-        # Inject topology: guards + source_handles (no waypoints — FE handles routing)
         flow1.swimlane["flows"] = [
-            {"id": "f-start-a0", "source": "start",       "target": str(a[0].id), "flow_type": "control"},
-            {"id": "f-a0-a1",    "source": str(a[0].id),  "target": str(a[1].id), "flow_type": "control"},
-            {"id": "f-a1-a2",  "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control",
-             "guard": "Có trong danh sách", "source_handle": "bottom"},
-            {"id": "f-a1-end", "source": str(a[1].id), "target": "end", "flow_type": "control",
-             "guard": "Không có → từ chối", "source_handle": "right"},
-            {"id": "f-a2-a3",  "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control",
+            {"id": "e01", "source": "start",      "target": str(a[0].id), "flow_type": "control"},
+            {"id": "e02", "source": str(a[0].id), "target": str(a[1].id), "flow_type": "control"},
+            {"id": "e03", "source": str(a[1].id), "target": str(a[2].id), "flow_type": "control"},
+            {"id": "e04", "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control",
+             "guard": "[Còn hàng]", "source_handle": "right"},
+            {"id": "e05", "source": str(a[2].id), "target": str(a[3].id), "flow_type": "control",
+             "guard": "[Hết hàng]", "source_handle": "bottom"},
+            {"id": "e06", "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
+            {"id": "e07", "source": str(a[3].id), "target": str(a[5].id), "flow_type": "control",
              "source_handle": "bottom"},
-            {"id": "f-a2-a4",  "source": str(a[2].id), "target": str(a[4].id), "flow_type": "control",
+            {"id": "e08", "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
+            {"id": "e09", "source": str(a[6].id), "target": str(a[7].id), "flow_type": "object",
              "source_handle": "right"},
-            {"id": "f-a3-a4",  "source": str(a[3].id), "target": str(a[4].id), "flow_type": "control",
-             "guard": "Đủ ngân sách", "source_handle": "bottom"},
-            {"id": "f-a3-end", "source": str(a[3].id), "target": "end", "flow_type": "control",
-             "guard": "Vượt ngân sách → từ chối", "source_handle": "right"},
-            {"id": "f-a4-a5",  "source": str(a[4].id), "target": str(a[5].id), "flow_type": "control"},
-            {"id": "f-a5-a6",  "source": str(a[5].id), "target": str(a[6].id), "flow_type": "control"},
-            {"id": "f-a6-a7",  "source": str(a[6].id), "target": str(a[7].id), "flow_type": "control",
-             "guard": "≤ 50M VND", "source_handle": "bottom"},
-            {"id": "f-a6-a8",  "source": str(a[6].id), "target": str(a[8].id), "flow_type": "control",
-             "guard": "> 50M VND → duyệt cấp 2", "source_handle": "left"},
-            {"id": "f-a7-a8",  "source": str(a[7].id), "target": str(a[8].id), "flow_type": "control"},
-            {"id": "f-a8-a9",  "source": str(a[8].id), "target": str(a[9].id), "flow_type": "object"},
-            {"id": "f-a9-end", "source": str(a[9].id), "target": "end",        "flow_type": "control"},
+            {"id": "e10", "source": str(a[7].id), "target": str(a[8].id), "flow_type": "object",
+             "source_handle": "left"},
+            {"id": "e11", "source": str(a[8].id), "target": str(a[9].id), "flow_type": "control"},
+            {"id": "e12", "source": str(a[9].id), "target": "end",        "flow_type": "control"},
         ]
 
-        # ── Flow 2 Actions — Warehouse + Accountant lanes ─────────────────────
+        # ── Flow 2 Actions ────────────────────────────────────────────────────
+        # Lane mapping: B1,B2,B5,B6,B8 → lane-ht; B3,B7 → lane-kv; B4 → lane-tc
         actions_f2 = [
-            ProjectFlowAction(flow_id=flow2.id, order=1, actor_id=sh_wh.id,
-                description="Kho nhận thông báo đơn hàng đã duyệt và chuẩn bị tiếp nhận hàng"),
-            ProjectFlowAction(flow_id=flow2.id, order=2, actor_id=sh_wh.id,
-                description="Kiểm tra hàng thực tế nhận được: số lượng, chất lượng, hạn sử dụng"),
-            ProjectFlowAction(flow_id=flow2.id, order=3, actor_id=sh_wh.id,
-                description="Nếu hàng có sai lệch (thiếu/hỏng) thì báo cáo sự cố; nếu không thì tiếp tục nhập kho"),
-            ProjectFlowAction(flow_id=flow2.id, order=4, actor_id=sh_wh.id,
-                description="Scan barcode và cập nhật tồn kho trong hệ thống"),
-            ProjectFlowAction(flow_id=flow2.id, order=5, actor_id=sh_acc.id,
-                description="Kế toán nhận hóa đơn VAT từ nhà cung cấp và upload lên hệ thống"),
-            ProjectFlowAction(flow_id=flow2.id, order=6, actor_id=sh_acc.id,
-                description="Đồng bộ dữ liệu nhập kho và hóa đơn vào SAP B1 — cập nhật Goods Receipt + Invoice"),
-            ProjectFlowAction(flow_id=flow2.id, order=7, actor_id=sh_acc.id,
-                description="Dữ liệu tài chính đã được xử lý: bản ghi kế toán hoàn tất [objectNode]"),
-            ProjectFlowAction(flow_id=flow2.id, order=8, actor_id=sh_wh.id,
-                description="Gửi xác nhận hoàn thành đơn hàng đến Requester và đánh dấu đơn Done"),
+            ProjectFlowAction(flow_id=flow2.id, order=1, actor_id=sh_ht.id,
+                description="Hệ thống nhận đơn hàng và khởi tạo quy trình xử lý nội bộ"),
+            ProjectFlowAction(flow_id=flow2.id, order=2, actor_id=sh_ht.id,
+                description="Hệ thống chia xử lý sang hai nhánh song song"),
+            ProjectFlowAction(flow_id=flow2.id, order=3, actor_id=sh_kv.id,
+                description="Kho vận kiểm tra hàng thực tế và chuẩn bị xuất kho"),
+            ProjectFlowAction(flow_id=flow2.id, order=4, actor_id=sh_tc.id,
+                description="Tài chính xác thực giao dịch với cổng thanh toán VNPay"),
+            ProjectFlowAction(flow_id=flow2.id, order=5, actor_id=sh_ht.id,
+                description="Hệ thống tổng hợp kết quả hai nhánh và xác nhận đơn hàng hợp lệ"),
+            ProjectFlowAction(flow_id=flow2.id, order=6, actor_id=sh_ht.id,
+                description="Hệ thống cập nhật trạng thái đơn thành đang giao hàng"),
+            ProjectFlowAction(flow_id=flow2.id, order=7, actor_id=sh_kv.id,
+                description="Kho vận bàn giao hàng cho đơn vị vận chuyển và ghi tracking code"),
+            ProjectFlowAction(flow_id=flow2.id, order=8, actor_id=sh_ht.id,
+                description="Hệ thống gửi thông tin tracking và thời gian giao dự kiến cho khách hàng"),
         ]
         session.add_all(actions_f2)
         await session.flush()
 
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f2[3].id, rule_id=rule_stock.id))
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f2[4].id, rule_id=rule_tax.id))
-        await session.execute(sa_insert(project_flow_action_rules).values(action_id=actions_f2[5].id, rule_id=rule_erp_sync.id))
+        b = actions_f2
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=b[0].id, rule_id=rule_order_limit.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=b[2].id, rule_id=rule_stock.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=b[3].id, rule_id=rule_payment.id))
         await session.flush()
 
-        # ── Flow 2 Swimlane via pipeline ──────────────────────────────────────
-        b = actions_f2
+        # ── Flow 2 Swimlane (fork/join) ───────────────────────────────────────
+        f2_lane_ids = ["lane-ht", "lane-kv", "lane-tc"]
         f2_lane_titles = {
-            f"lane-{sh_wh.id}":  "Warehouse Staff (Kho)",
-            f"lane-{sh_acc.id}": "Accountant (Kế toán)",
+            "lane-ht": "Hệ thống",
+            "lane-kv": "Kho vận",
+            "lane-tc": "Tài chính",
         }
         f2_input = [
-            {"id": str(b[0].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 1, "label": b[0].description},
-            {"id": str(b[1].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 2, "label": b[1].description},
-            {"id": str(b[2].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "decision",   "order": 3, "label": "Hàng có sai lệch (thiếu/hỏng)?"},
-            {"id": str(b[3].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 4, "label": b[3].description},
-            {"id": str(b[4].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",     "order": 5, "label": b[4].description},
-            {"id": str(b[5].id), "lane_id": f"lane-{sh_acc.id}", "notation": "action",     "order": 6, "label": b[5].description},
-            {"id": str(b[6].id), "lane_id": f"lane-{sh_acc.id}", "notation": "objectNode", "order": 7, "label": "Bản ghi kế toán [hoàn tất]"},
-            {"id": str(b[7].id), "lane_id": f"lane-{sh_wh.id}",  "notation": "action",     "order": 8, "label": b[7].description},
+            {"id": str(b[0].id), "lane_id": "lane-ht", "notation": "action", "order": 1, "label": "Nhận và khởi tạo đơn hàng"},
+            {"id": str(b[1].id), "lane_id": "lane-ht", "notation": "fork",   "order": 2, "label": None},
+            {"id": str(b[2].id), "lane_id": "lane-kv", "notation": "action", "order": 3, "label": "Kiểm tra hàng thực tế"},
+            {"id": str(b[3].id), "lane_id": "lane-tc", "notation": "action", "order": 4, "label": "Xác thực giao dịch VNPay"},
+            {"id": str(b[4].id), "lane_id": "lane-ht", "notation": "join",   "order": 5, "label": None},
+            {"id": str(b[5].id), "lane_id": "lane-ht", "notation": "action", "order": 6, "label": "Xác nhận đơn hàng hợp lệ"},
+            {"id": str(b[6].id), "lane_id": "lane-kv", "notation": "action", "order": 7, "label": "Bàn giao cho đơn vị vận chuyển"},
+            {"id": str(b[7].id), "lane_id": "lane-ht", "notation": "action", "order": 8, "label": "Gửi tracking cho khách hàng"},
         ]
-        layout2 = calculate_layout(f2_input, list(f2_lane_titles.keys()))
+        layout2 = calculate_layout(f2_input, f2_lane_ids)
         layout2 = await review_positions(
             layout2,
             access_key=settings.aws_access_key_id,
@@ -522,152 +574,98 @@ async def seed():
             lane["title"] = f2_lane_titles.get(lane["id"], lane["id"])
 
         flow2.swimlane["flows"] = [
-            {"id": "f-start-b0", "source": "start",       "target": str(b[0].id), "flow_type": "control"},
-            {"id": "f-b0-b1",    "source": str(b[0].id),  "target": str(b[1].id), "flow_type": "control"},
-            {"id": "f-b1-b2",    "source": str(b[1].id),  "target": str(b[2].id), "flow_type": "control"},
-            {"id": "f-b2-b3",  "source": str(b[2].id), "target": str(b[3].id), "flow_type": "control",
-             "guard": "Không sai lệch", "source_handle": "bottom"},
-            {"id": "f-b2-inc", "source": str(b[2].id), "target": "end", "flow_type": "control",
-             "guard": "Có sai lệch → báo cáo sự cố", "source_handle": "right"},
-            {"id": "f-b3-b4",  "source": str(b[3].id),  "target": str(b[4].id), "flow_type": "control"},
-            {"id": "f-b4-b5",  "source": str(b[4].id),  "target": str(b[5].id), "flow_type": "control"},
-            {"id": "f-b5-b6",  "source": str(b[5].id),  "target": str(b[6].id), "flow_type": "object"},
-            {"id": "f-b6-b7",  "source": str(b[6].id),  "target": str(b[7].id), "flow_type": "control"},
-            {"id": "f-b7-end", "source": str(b[7].id),  "target": "end",        "flow_type": "control"},
+            {"id": "f01", "source": "start",      "target": str(b[0].id), "flow_type": "control"},
+            {"id": "f02", "source": str(b[0].id), "target": str(b[1].id), "flow_type": "control"},
+            {"id": "f03", "source": str(b[1].id), "target": str(b[2].id), "flow_type": "control",
+             "source_handle": "bottom_left"},
+            {"id": "f04", "source": str(b[1].id), "target": str(b[3].id), "flow_type": "control",
+             "source_handle": "bottom_right"},
+            {"id": "f05", "source": str(b[2].id), "target": str(b[4].id), "flow_type": "control",
+             "target_handle": "top_left"},
+            {"id": "f06", "source": str(b[3].id), "target": str(b[4].id), "flow_type": "control",
+             "target_handle": "top_right"},
+            {"id": "f07", "source": str(b[4].id), "target": str(b[5].id), "flow_type": "control"},
+            {"id": "f08", "source": str(b[5].id), "target": str(b[6].id), "flow_type": "control"},
+            {"id": "f09", "source": str(b[6].id), "target": str(b[7].id), "flow_type": "control"},
+            {"id": "f10", "source": str(b[7].id), "target": "end",        "flow_type": "control"},
         ]
-        await session.flush()
 
-        # ── Epics / Features / Stories / Tasks ────────────────────────────────
-        epic1 = Epic(
-            project_id=pid, prefix="EP-001",
-            title="Quản lý đơn đặt hàng (Order Management)",
-            description="Toàn bộ nghiệp vụ tạo, duyệt và theo dõi đơn đặt hàng nội bộ",
-            status=ItemStatus.in_progress, priority=Priority.high,
-            labels=["core", "requester", "approver"],
-        )
-        epic2 = Epic(
-            project_id=pid, prefix="EP-002",
-            title="Quản lý kho (Warehouse Management)",
-            description="Nhận hàng, kiểm tra, cập nhật tồn kho và xác nhận hoàn tất",
-            status=ItemStatus.draft, priority=Priority.high,
-            labels=["warehouse", "inventory"],
-        )
-        epic3 = Epic(
-            project_id=pid, prefix="EP-003",
-            title="Tích hợp ERP & Kế toán",
-            description="Đồng bộ hai chiều với SAP B1: Purchase Order, Goods Receipt, Invoice",
-            status=ItemStatus.draft, priority=Priority.high,
-            labels=["erp", "accounting", "integration"],
-        )
-        epic4 = Epic(
-            project_id=pid, prefix="EP-004",
-            title="Dashboard & Báo cáo",
-            description="Biểu đồ trạng thái đơn, KPI kho, top nhà cung cấp",
-            status=ItemStatus.draft, priority=Priority.medium,
-            labels=["analytics", "reporting"],
-        )
-        session.add_all([epic1, epic2, epic3, epic4])
-        await session.flush()
-
-        # Features for EP-001
-        feat1_1 = Feature(
-            epic_id=epic1.id, prefix="EP-001-F01",
-            title="Tạo và quản lý đơn đặt hàng",
-            description="Form tạo đơn với catalog sản phẩm, upload file đính kèm, lưu nháp",
-            status=ItemStatus.in_progress, priority=Priority.high,
-        )
-        feat1_2 = Feature(
-            epic_id=epic1.id, prefix="EP-001-F02",
-            title="Workflow duyệt đơn hàng",
-            description="Luồng duyệt 1-2 cấp, notification, audit log",
-            status=ItemStatus.draft, priority=Priority.high,
-        )
-        feat1_3 = Feature(
-            epic_id=epic1.id, prefix="EP-001-F03",
-            title="Theo dõi trạng thái đơn hàng",
-            description="Timeline view, real-time status, filter và search đơn",
-            status=ItemStatus.draft, priority=Priority.medium,
-        )
-        # Features for EP-002
-        feat2_1 = Feature(
-            epic_id=epic2.id, prefix="EP-002-F01",
-            title="Xử lý nhận hàng tại kho",
-            description="Barcode scan, kiểm tra số lượng/chất lượng, báo cáo sự cố",
-            status=ItemStatus.draft, priority=Priority.high,
-        )
-        session.add_all([feat1_1, feat1_2, feat1_3, feat2_1])
-        await session.flush()
-
-        # Stories for feat1_1
-        story1 = Story(
-            feature_id=feat1_1.id, prefix="EP-001-F01-S01",
-            title="Tạo đơn đặt hàng mới từ catalog",
-            actor_ref="Requester",
-            action_text="muốn tạo đơn đặt hàng bằng cách chọn sản phẩm từ catalog và điền số lượng",
-            goal_text="để gửi yêu cầu mua hàng nhanh hơn mà không cần nhớ mã sản phẩm",
-            status=ItemStatus.in_progress, priority=Priority.high,
-            story_points=8, business_value=90,
-            labels=["catalog", "order-create"],
-        )
-        story2 = Story(
-            feature_id=feat1_1.id, prefix="EP-001-F01-S02",
-            title="Lưu đơn hàng dưới dạng nháp",
-            actor_ref="Requester",
-            action_text="muốn lưu đơn đang tạo dở làm nháp",
-            goal_text="để tiếp tục điền thông tin sau mà không mất dữ liệu",
-            status=ItemStatus.draft, priority=Priority.medium,
-            story_points=3, business_value=40,
-        )
-        story3 = Story(
-            feature_id=feat1_2.id, prefix="EP-001-F02-S01",
-            title="Approver nhận notification và duyệt đơn",
-            actor_ref="Approver",
-            action_text="muốn nhận thông báo khi có đơn chờ duyệt và duyệt/từ chối trong 1 click",
-            goal_text="để không bỏ sót đơn và giảm thời gian xử lý",
-            status=ItemStatus.draft, priority=Priority.high,
-            story_points=5, business_value=85,
-            labels=["approval", "notification"],
-        )
-        session.add_all([story1, story2, story3])
-        await session.flush()
-
-        # Acceptance criteria
-        ac_data = [
-            (story1.id, 0, "Hiển thị catalog với tìm kiếm theo tên, mã, và danh mục"),
-            (story1.id, 1, "Validate số lượng > 0 và không vượt quá giới hạn đặt hàng/lần"),
-            (story1.id, 2, "Tự động điền đơn giá tham chiếu từ nhà cung cấp ưu tiên"),
-            (story1.id, 3, "Sau submit, đơn xuất hiện trong danh sách 'Chờ duyệt' của Approver"),
-            (story2.id, 0, "Nút 'Lưu nháp' hiển thị suốt quá trình điền form"),
-            (story2.id, 1, "Đơn nháp hiển thị trong tab 'Nháp' của Requester, có thể tiếp tục chỉnh sửa"),
-            (story3.id, 0, "Approver nhận email với link dẫn thẳng đến trang duyệt đơn"),
-            (story3.id, 1, "Trang duyệt hiển thị đầy đủ: sản phẩm, số lượng, đơn giá, tổng giá trị, nhà cung cấp"),
-            (story3.id, 2, "Có thể duyệt hoặc từ chối kèm ghi chú; ghi chú bắt buộc khi từ chối"),
+        # ── Flow 3 Actions ────────────────────────────────────────────────────
+        # Lane mapping: C1 → lane-kh; C2,C3,C7,C8,C9 → lane-ht; C4,C6 → lane-kv; C5 → lane-tc
+        actions_f3 = [
+            ProjectFlowAction(flow_id=flow3.id, order=1, actor_id=sh_kh.id,
+                description="Khách hàng gửi yêu cầu khiếu nại kèm ảnh minh chứng"),
+            ProjectFlowAction(flow_id=flow3.id, order=2, actor_id=sh_ht.id,
+                description="Hệ thống ghi nhận khiếu nại và tạo ticket hỗ trợ"),
+            ProjectFlowAction(flow_id=flow3.id, order=3, actor_id=sh_ht.id,
+                description="Hệ thống kiểm tra loại khiếu nại để định tuyến xử lý"),
+            ProjectFlowAction(flow_id=flow3.id, order=4, actor_id=sh_kv.id,
+                description="Kho vận xác nhận lỗi xuất hàng và chuẩn bị hàng đổi trả"),
+            ProjectFlowAction(flow_id=flow3.id, order=5, actor_id=sh_tc.id,
+                description="Tài chính xử lý hoàn tiền theo chính sách"),
+            ProjectFlowAction(flow_id=flow3.id, order=6, actor_id=sh_kv.id,
+                description="Kho vận điều phối lấy hàng lỗi và giao hàng đúng"),
+            ProjectFlowAction(flow_id=flow3.id, order=7, actor_id=sh_ht.id,
+                description="Hệ thống hợp nhất kết quả xử lý và cập nhật trạng thái ticket"),
+            ProjectFlowAction(flow_id=flow3.id, order=8, actor_id=sh_ht.id,
+                description="Hệ thống đóng ticket và gửi email xác nhận cho khách hàng"),
+            ProjectFlowAction(flow_id=flow3.id, order=9, actor_id=sh_ht.id,
+                description="Hệ thống gửi khảo sát đánh giá chất lượng xử lý khiếu nại"),
         ]
-        session.add_all([
-            AcceptanceCriteria(story_id=sid, order=order, description=desc)
-            for sid, order, desc in ac_data
-        ])
+        session.add_all(actions_f3)
+        await session.flush()
 
-        # Tasks for story1
-        tasks = [
-            Task(story_id=story1.id, prefix="EP-001-F01-S01-T01",
-                 title="BE: API GET /catalog/products với pagination và filter",
-                 status=ItemStatus.done, priority=Priority.high,
-                 estimated_hours=4, category="backend"),
-            Task(story_id=story1.id, prefix="EP-001-F01-S01-T02",
-                 title="BE: API POST /orders — validate + tạo đơn + trigger notification",
-                 status=ItemStatus.in_progress, priority=Priority.high,
-                 estimated_hours=8, category="backend"),
-            Task(story_id=story1.id, prefix="EP-001-F01-S01-T03",
-                 title="FE: Form tạo đơn với catalog picker và tính toán tổng giá",
-                 status=ItemStatus.draft, priority=Priority.high,
-                 estimated_hours=12, category="frontend"),
-            Task(story_id=story1.id, prefix="EP-001-F01-S01-T04",
-                 title="QA: Test case tạo đơn — catalog search, validate, submit",
-                 status=ItemStatus.draft, priority=Priority.medium,
-                 estimated_hours=4, category="qa"),
+        c = actions_f3
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=c[2].id, rule_id=rule_cancel.id))
+        await session.execute(sa_insert(project_flow_action_rules).values(action_id=c[4].id, rule_id=rule_refund.id))
+        await session.flush()
+
+        # ── Flow 3 Swimlane (decision → parallel paths → merge) ───────────────
+        f3_lane_ids = ["lane-kh", "lane-ht", "lane-kv", "lane-tc"]
+        f3_lane_titles = {
+            "lane-kh": "Khách hàng",
+            "lane-ht": "Hệ thống",
+            "lane-kv": "Kho vận",
+            "lane-tc": "Tài chính",
+        }
+        f3_input = [
+            {"id": str(c[0].id), "lane_id": "lane-kh", "notation": "action",   "order": 1, "label": "Gửi khiếu nại kèm minh chứng"},
+            {"id": str(c[1].id), "lane_id": "lane-ht", "notation": "action",   "order": 2, "label": "Ghi nhận & tạo ticket hỗ trợ"},
+            {"id": str(c[2].id), "lane_id": "lane-ht", "notation": "decision", "order": 3, "label": "Loại khiếu nại?"},
+            {"id": str(c[3].id), "lane_id": "lane-kv", "notation": "action",   "order": 4, "label": "Xác nhận lỗi & chuẩn bị đổi trả"},
+            {"id": str(c[4].id), "lane_id": "lane-tc", "notation": "action",   "order": 5, "label": "Xử lý hoàn tiền"},
+            {"id": str(c[5].id), "lane_id": "lane-kv", "notation": "action",   "order": 6, "label": "Lấy hàng lỗi & giao đúng"},
+            {"id": str(c[6].id), "lane_id": "lane-ht", "notation": "merge",    "order": 7, "label": None},
+            {"id": str(c[7].id), "lane_id": "lane-ht", "notation": "action",   "order": 8, "label": "Đóng ticket & gửi xác nhận"},
+            {"id": str(c[8].id), "lane_id": "lane-ht", "notation": "action",   "order": 9, "label": "Gửi khảo sát chất lượng"},
         ]
-        session.add_all(tasks)
+        layout3 = calculate_layout(f3_input, f3_lane_ids)
+        layout3 = await review_positions(
+            layout3,
+            access_key=settings.aws_access_key_id,
+            secret_key=settings.aws_secret_access_key,
+            region=settings.aws_region,
+            model_id=settings.bedrock_notation_model,
+        )
+        flow3.swimlane = layout_to_swimlane_dict(layout3, str(flow3.id), flow3.name)
+        for lane in flow3.swimlane["lanes"]:
+            lane["title"] = f3_lane_titles.get(lane["id"], lane["id"])
+
+        flow3.swimlane["flows"] = [
+            {"id": "g01", "source": "start",      "target": str(c[0].id), "flow_type": "control"},
+            {"id": "g02", "source": str(c[0].id), "target": str(c[1].id), "flow_type": "control"},
+            {"id": "g03", "source": str(c[1].id), "target": str(c[2].id), "flow_type": "control"},
+            {"id": "g04", "source": str(c[2].id), "target": str(c[3].id), "flow_type": "control",
+             "guard": "[Lỗi xuất hàng]", "source_handle": "bottom"},
+            {"id": "g05", "source": str(c[2].id), "target": str(c[4].id), "flow_type": "control",
+             "guard": "[Hoàn tiền]", "source_handle": "right"},
+            {"id": "g06", "source": str(c[3].id), "target": str(c[5].id), "flow_type": "control"},
+            {"id": "g07", "source": str(c[4].id), "target": str(c[6].id), "flow_type": "control"},
+            {"id": "g08", "source": str(c[5].id), "target": str(c[6].id), "flow_type": "control"},
+            {"id": "g09", "source": str(c[6].id), "target": str(c[7].id), "flow_type": "control"},
+            {"id": "g10", "source": str(c[7].id), "target": str(c[8].id), "flow_type": "control"},
+            {"id": "g11", "source": str(c[8].id), "target": "end",        "flow_type": "control"},
+        ]
         await session.flush()
 
         await session.commit()
@@ -676,20 +674,19 @@ async def seed():
         print(f"       Project: '{project.name}' (slug: {project.slug})")
         print(f"       Org:     {org.name} (slug: {org.slug})")
         print(f"       Data:")
-        print(f"         - 5 stakeholders")
-        print(f"         - 4 goals + 9 objectives")
-        print(f"         - 6 constraints")
-        print(f"         - 7 business requirements")
-        print(f"         - 7 business rules")
-        print(f"         - 4 actors")
-        print(f"         - 9 NFRs")
-        print(f"         - 2 flows (10 + 8 actions, full swimlane UML notation)")
-        print(f"         - 4 epics, 4 features, 3 stories, 4 tasks")
+        print(f"         - 7 stakeholders (4 business actors, 3 others)")
+        print(f"         - 6 system actors")
+        print(f"         - 5 goals + 17 objectives")
+        print(f"         - 11 constraints")
+        print(f"         - 7 out-of-scope items")
+        print(f"         - 12 business requirements")
+        print(f"         - 9 business rules")
+        print(f"         - 15 NFRs")
+        print(f"         - 3 flows (10 + 8 + 9 actions, full UML swimlane notation)")
 
 
 async def add_member(github_login: str) -> None:
     async with async_session_factory() as session:
-        # Resolve user
         result = await session.execute(select(User).where(User.github_login == github_login))
         user = result.scalar_one_or_none()
         if not user:
@@ -697,14 +694,12 @@ async def add_member(github_login: str) -> None:
             print("        Login via GitHub OAuth first, then re-run this command.")
             return
 
-        # Resolve org
         result = await session.execute(select(Organization).where(Organization.slug == ORG_SLUG))
         org = result.scalar_one_or_none()
         if not org:
             print(f"[error] Org '{ORG_SLUG}' not found. Run seed first (no flags).")
             return
 
-        # Add to org if not already member
         result = await session.execute(
             select(OrgMember).where(OrgMember.org_id == org.id, OrgMember.user_id == user.id)
         )
