@@ -295,6 +295,8 @@ class ContextDiagramService:
             for f in diagram.flows
         }
         new_flows: list[dict[str, Any]] = []
+        actors_with_edges: set[str] = set()
+
         for (aid, direction), label in groups.items():
             if aid not in all_valid_ids:
                 continue
@@ -302,6 +304,22 @@ class ContextDiagramService:
             if (src, tgt) not in existing_pairs:
                 new_flows.append({"id": str(uuid.uuid4()), "source": src, "target": tgt, "label": label})
                 existing_pairs.add((src, tgt))
+            actors_with_edges.add(aid)
+
+        # stakeholders already in the diagram that have no edge at all get a default actor→center edge
+        for f in diagram.flows:
+            src, tgt = f.get("source", ""), f.get("target", "")
+            if src != _CENTER:
+                actors_with_edges.add(src)
+            if tgt != _CENTER:
+                actors_with_edges.add(tgt)
+
+        all_stakeholder_ids = list(existing_ids) + flow_actor_ids
+        for sid in all_stakeholder_ids:
+            if sid not in actors_with_edges and (sid, _CENTER) not in existing_pairs:
+                new_flows.append({"id": str(uuid.uuid4()), "source": sid, "target": _CENTER, "label": ""})
+                existing_pairs.add((sid, _CENTER))
+                actors_with_edges.add(sid)
 
         if flow_actor_ids:
             diagram.stakeholder_ids = diagram.stakeholder_ids + flow_actor_ids

@@ -25,7 +25,9 @@ Rules:
 - "actor_to_system": the actor initiates, requests, submits, or sends something TO the system (input/request flow)
 - "system_to_actor": the system sends, notifies, returns, displays, or responds TO the actor (output/response flow)
 
-Also generate a concise 2-5 word label summarising this interaction.
+Generate a concise 2-5 word label that matches the classified direction:
+- If actor_to_system: label describes what the actor sends or does (e.g. "Submit order", "Upload file", "Request report")
+- If system_to_actor: label describes what the system returns or sends (e.g. "Confirm payment", "Send notification", "Return results")
 
 Return exactly two lines with no extra text:
 direction: <actor_to_system|system_to_actor>
