@@ -43,7 +43,9 @@ class ContextDiagramService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Context diagram chưa được tạo")
         return diagram
 
-    async def _load_diagram_with_project_name(self, project_id: uuid.UUID) -> tuple[ProjectContextDiagram, str]:
+    async def _load_diagram_with_project_name(
+        self, project_id: uuid.UUID, *, create_if_missing: bool = False
+    ) -> tuple[ProjectContextDiagram, str]:
         result = await self.db.execute(
             select(ProjectContextDiagram, Project.name)
             .join(Project, Project.id == ProjectContextDiagram.project_id)
@@ -51,7 +53,18 @@ class ContextDiagramService:
         )
         row = result.one_or_none()
         if not row:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Context diagram chưa được tạo")
+            if not create_if_missing:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Context diagram chưa được tạo")
+            project_result = await self.db.execute(
+                select(Project).where(Project.id == project_id)
+            )
+            project = project_result.scalar_one_or_none()
+            if not project:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Project không tồn tại")
+            diagram = ProjectContextDiagram(project_id=project_id, stakeholder_ids=[], flows=[])
+            self.db.add(diagram)
+            await self.db.flush()
+            return diagram, project.name
         return row[0], row[1]
 
     async def _load_stakeholders_for(
@@ -89,7 +102,7 @@ class ContextDiagramService:
         )
 
     async def get(self, project_id: uuid.UUID) -> ContextDiagramResponse:
-        diagram, project_name = await self._load_diagram_with_project_name(project_id)
+        diagram, project_name = await self._load_diagram_with_project_name(project_id, create_if_missing=True)
         if not diagram.stakeholder_ids:
             await self._sync_typed_stakeholders(project_id, diagram)
         stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
