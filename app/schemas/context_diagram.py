@@ -1,5 +1,3 @@
-import uuid
-
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
@@ -70,10 +68,6 @@ class FlowCreateRequest(BaseModel):
 
 class FlowUpdateRequest(BaseModel):
     label: str
-
-
-class StakeholderAddRequest(BaseModel):
-    stakeholder_id: uuid.UUID
 
 
 class SyncResult(BaseModel):

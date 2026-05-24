@@ -99,25 +99,15 @@ class ContextDiagramService:
         stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
         return self._build_response(project_name, diagram, stakeholder_map)
 
-    async def add_stakeholder(
+    async def _add_stakeholder_to_diagram(
         self, project_id: uuid.UUID, stakeholder_id: uuid.UUID
-    ) -> ContextDiagramStakeholder:
-        stakeholder_result = await self.db.execute(
-            select(Stakeholder).where(
-                Stakeholder.id == stakeholder_id,
-                Stakeholder.project_id == project_id,
-            )
-        )
-        stakeholder = stakeholder_result.scalar_one_or_none()
-        if not stakeholder:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Stakeholder không tồn tại trong project")
-
-        diagram_result = await self.db.execute(
+    ) -> None:
+        result = await self.db.execute(
             select(ProjectContextDiagram).where(
                 ProjectContextDiagram.project_id == project_id
             )
         )
-        diagram = diagram_result.scalar_one_or_none()
+        diagram = result.scalar_one_or_none()
         if not diagram:
             diagram = ProjectContextDiagram(
                 project_id=project_id,
@@ -130,27 +120,26 @@ class ContextDiagramService:
             await self.db.refresh(diagram)
 
         sid = str(stakeholder_id)
-        if sid in (diagram.stakeholder_ids or []):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="Stakeholder đã có trong diagram")
+        if sid not in diagram.stakeholder_ids:
+            diagram.stakeholder_ids = diagram.stakeholder_ids + [sid]
+            flag_modified(diagram, "stakeholder_ids")
+            await self.db.flush()
 
-        diagram.stakeholder_ids = list(diagram.stakeholder_ids or []) + [sid]
-        flag_modified(diagram, "stakeholder_ids")
-        await self.db.flush()
-
-        return ContextDiagramStakeholder(
-            id=sid,
-            name=stakeholder.name,
-            role=stakeholder.system_description,
-        )
-
-    async def remove_stakeholder(
+    async def _remove_stakeholder_from_diagram(
         self, project_id: uuid.UUID, stakeholder_id: uuid.UUID
     ) -> None:
-        diagram = await self._load_diagram(project_id)
-        sid = str(stakeholder_id)
+        result = await self.db.execute(
+            select(ProjectContextDiagram).where(
+                ProjectContextDiagram.project_id == project_id
+            )
+        )
+        diagram = result.scalar_one_or_none()
+        if not diagram:
+            return
 
+        sid = str(stakeholder_id)
         if sid not in diagram.stakeholder_ids:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Stakeholder không có trong diagram")
+            return
 
         diagram.stakeholder_ids = [i for i in diagram.stakeholder_ids if i != sid]
         diagram.flows = [

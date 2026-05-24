@@ -34,6 +34,11 @@ class StakeholderService:
         self.db.add(obj)
         await self.db.flush()
         await self.db.refresh(obj)
+
+        if obj.actor_type != ActorType.none:
+            from app.services.context_diagram_service import ContextDiagramService
+            await ContextDiagramService(self.db)._add_stakeholder_to_diagram(project_id, obj.id)
+
         return StakeholderResponse.model_validate(obj)
 
     async def list(
@@ -60,4 +65,7 @@ class StakeholderService:
 
     async def delete(self, project_id: uuid.UUID, stakeholder_id: uuid.UUID) -> None:
         obj = await self._get(project_id, stakeholder_id)
+        if obj.actor_type != ActorType.none:
+            from app.services.context_diagram_service import ContextDiagramService
+            await ContextDiagramService(self.db)._remove_stakeholder_from_diagram(project_id, obj.id)
         await self.db.delete(obj)

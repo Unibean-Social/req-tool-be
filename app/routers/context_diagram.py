@@ -9,11 +9,9 @@ from app.models.user import User
 from app.schemas.context_diagram import (
     ContextDiagramFlow,
     ContextDiagramResponse,
-    ContextDiagramStakeholder,
     FlowCreateRequest,
     FlowUpdateRequest,
     LayoutSaveRequest,
-    StakeholderAddRequest,
     SyncResult,
 )
 from app.schemas.response import ApiResponse
@@ -79,28 +77,6 @@ async def delete_flow(
 ):
     await require_project_access(project_id, user, service.db)
     await service.delete_flow(project_id, flow_id)
-
-
-@router.post("/stakeholders", response_model=ApiResponse[ContextDiagramStakeholder], status_code=status.HTTP_201_CREATED)
-async def add_stakeholder(
-    project_id: uuid.UUID,
-    body: StakeholderAddRequest,
-    user: User = Depends(current_user),
-    service: ContextDiagramService = Depends(get_context_diagram_service),
-):
-    await require_project_access(project_id, user, service.db)
-    return created(await service.add_stakeholder(project_id, body.stakeholder_id))
-
-
-@router.delete("/stakeholders/{stakeholder_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_stakeholder(
-    project_id: uuid.UUID,
-    stakeholder_id: uuid.UUID,
-    user: User = Depends(current_user),
-    service: ContextDiagramService = Depends(get_context_diagram_service),
-):
-    await require_project_access(project_id, user, service.db)
-    await service.remove_stakeholder(project_id, stakeholder_id)
 
 
 @router.post("/sync", response_model=ApiResponse[SyncResult])
