@@ -1,6 +1,6 @@
 # Research Mode
 
-Behavioral context for investigation, exploration, and understanding. Prioritize breadth and accuracy over speed.
+Behavioral context for investigation, planning, and exploration. Prioritize breadth and accuracy over speed.
 
 ## Principles
 
@@ -13,7 +13,7 @@ Behavioral context for investigation, exploration, and understanding. Prioritize
 ```
 HIGH:    Grep, Glob, Read, WebSearch, WebFetch
 MEDIUM:  Bash (non-destructive: git log, dependency checks)
-LOW:     Edit, Write (only for saving findings)
+LOW:     Edit, Write (only for saving findings/plans)
 ```
 
 ## Investigation Framework
@@ -26,6 +26,15 @@ LOW:     Edit, Write (only for saving findings)
    - **Confirmed**: found in code/docs, verified
    - **Likely**: strong evidence but not 100% confirmed
    - **Uncertain**: limited evidence, needs more investigation
+
+## Planning Guidance (ck:plan)
+
+- `--fast`: skip research — planner works directly from feature description
+- `--hard` / `--parallel`: 2 researchers run in parallel (Primary + Alternative approaches)
+- `--two`: 2 researchers each investigate a distinct approach for side-by-side comparison
+- `--auto`: 1 researcher covers primary approach, then pipeline auto-proceeds to cook
+
+When writing plans: **plain language only** — steps must read like standup sentences, no code or pseudo-code.
 
 ## Behavioral Rules
 

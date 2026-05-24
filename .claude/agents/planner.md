@@ -79,10 +79,23 @@ Mode: {Fast | Hard | Parallel | Two}
 ```
 
 Rules for Steps:
-- **What, not how.** Describe the goal of each step, never the implementation.
-- **No code or technical detail.** No function names, class names, SQL, config keys, or pseudo-code.
-- **Merge aggressively.** If two steps touch the same concern, combine them.
-- **5–8 steps per phase.** If you're writing more, you're over-decomposing.
+
+**Plain language only.** Every step must read like a sentence you'd say in a standup — no code, no function names, no class names, no file paths, no SQL, no config keys, no pseudo-code. If it looks like a tech spec, rewrite it.
+
+**What, not how.** State the goal. Leave the how to the implementor (`/ck:cook`).
+
+**Merge aggressively.** 5–8 steps per phase max. If two steps touch the same concern, combine them.
+
+**Good vs bad:**
+
+| Bad (too detailed) | Good (intent only) |
+|---|---|
+| `Add UserAuthService.validateToken(jwt: string)` | Add token validation to the auth service |
+| `ALTER TABLE users ADD COLUMN refresh_token VARCHAR(512)` | Extend the user record to store refresh tokens |
+| `Set JWT_SECRET in .env and load via process.env` | Wire the signing secret through environment config |
+| `Call POST /api/auth/refresh with body { token }` | Add a refresh endpoint that issues new access tokens |
+
+**Success Criteria** follow the same rule — observable outcomes only, no implementation details. "Login succeeds with a valid token" is good. "JWT.verify() returns payload" is not.
 
 ## Parallel Mode Addition
 

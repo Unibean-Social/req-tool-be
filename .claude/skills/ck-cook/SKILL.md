@@ -10,6 +10,7 @@ Modes — mutually exclusive, pick one (default = Standard):
 - **Standard** — test + review, auto-approve if score ≥ 9.5 with 0 CRITICAL
 - **`--fast`** — skip tester and code-reviewer; git-manager only in Step 5
 - **`--hard`** — mandatory test + mandatory review, no auto-approve
+- **`--parallel`** — phases have exclusive File Ownership (from `ck:plan --parallel`); auto-continue between phases (no per-phase review gate), full test + review at end
 
 Composable flags — combine with any mode:
 - **`--no-test`** — skip tester; go directly to Step 3.S → Step 4
@@ -81,7 +82,7 @@ For each `phase-XX-*.md` in order:
 
 **Review Gate** — after each phase:
 - **Standard / `--hard`**: pause and wait for user approval
-- **`--fast`**: continue automatically
+- **`--fast`** / **`--parallel`**: continue automatically
 
 Stop if: success criterion unverifiable, unexpected blocker, or phase needs user decisions not in the plan.
 

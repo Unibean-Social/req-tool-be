@@ -3,12 +3,12 @@
 UserPromptSubmit hook — inject session context and active plan info.
 
 Detects the active /ck: command from the user message and picks the matching
-context file. Falls back to .ck.json `context` field, then "dev".
+context file. Falls back to "dev".
 
 Command → context mapping:
-  /ck:cook, /ck:fix, /ck:docs-fe          → dev
-  /ck:brainstorm, /ck:plan, /ck:learn     → research
-  /ck:code-review                         → review
+  /ck:cook, /ck:fix, /ck:docs-fe                      → dev
+  /ck:brainstorm, /ck:plan, /ck:learn, /ck:brainstorm → research
+  /ck:code-review                                      → review
 """
 
 import json
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "lib"))
-from ck_config_utils import find_project_root, load_ck_config
+from ck_config_utils import find_project_root
 
 PLANS_DIR = "plans"
 STATUS_ACTIVE = "🟡"
@@ -32,10 +32,13 @@ COMMAND_CONTEXT_MAP: dict[str, str] = {
     "/ck:cook": "dev",
     "/ck:fix": "dev",
     "/ck:docs-fe": "dev",
+    "/ck:init": "dev",
     "/ck:brainstorm": "research",
     "/ck:plan": "research",
     "/ck:learn": "research",
+    "/ck:show-off": "research",
     "/ck:code-review": "review",
+    "/ck:coding-level": "review",
 }
 
 
@@ -145,10 +148,9 @@ def main():
         pass
 
     root = find_project_root() or Path(os.getcwd())
-    config = load_ck_config(root)
 
     detected = detect_context_from_message(user_message)
-    context_mode = detected or config.get("context", DEFAULT_CONTEXT)
+    context_mode = detected or DEFAULT_CONTEXT
 
     context_body = load_context_file(root, context_mode)
     if context_body is None:

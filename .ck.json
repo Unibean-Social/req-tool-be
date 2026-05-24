@@ -1,6 +1,6 @@
 {
   "codingLevel": 2,
-  "context": "dev",
+  "language": { "conversation": "vi", "files": "en" },
   "compactDay": 3,
   "cavemanMode": {
     "enabled": true,
