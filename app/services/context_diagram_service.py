@@ -90,6 +90,8 @@ class ContextDiagramService:
 
     async def get(self, project_id: uuid.UUID) -> ContextDiagramResponse:
         diagram, project_name = await self._load_diagram_with_project_name(project_id)
+        if not diagram.stakeholder_ids:
+            await self._sync_typed_stakeholders(project_id, diagram)
         stakeholder_map = await self._load_stakeholders_for(project_id, diagram.stakeholder_ids)
         return self._build_response(project_name, diagram, stakeholder_map)
 
