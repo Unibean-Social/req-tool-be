@@ -325,47 +325,47 @@ async def seed():
 
         # ── Business Rules ─────────────────────────────────────────────────────
         rule_stock = ProjectRule(
-            project_id=pid, type=RuleType.validation, is_dynamic=True,
+            project_id=pid, code="BR-001", type=RuleType.validation, is_dynamic=True,
             rule_def="Đơn hàng chỉ được xác nhận khi số lượng tồn kho trong ERP >= số lượng đặt. Nếu thiếu hàng hệ thống từ chối ngay và thông báo số lượng còn lại cho khách.",
             source="Nghiệp vụ kho vận — tài liệu WH-001 v2.0",
         )
         rule_payment = ProjectRule(
-            project_id=pid, type=RuleType.validation, is_dynamic=False,
+            project_id=pid, code="BR-002", type=RuleType.validation, is_dynamic=False,
             rule_def="Giao dịch thanh toán phải được cổng thanh toán xác nhận thành công (mã trả về 00) trước khi hệ thống gửi lệnh xuất kho. Timeout 30 giây — nếu quá hạn đơn chuyển sang pending_payment và retry tối đa 2 lần.",
             source="Thoả thuận tích hợp VNPay Merchant v2.1",
         )
         rule_cancel = ProjectRule(
-            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            project_id=pid, code="BR-003", type=RuleType.policy, is_dynamic=False,
             rule_def="Khách hàng chỉ được huỷ đơn trong 30 phút kể từ thời điểm đặt và đơn phải chưa được kho xác nhận (status = confirmed). Sau khi kho xác nhận chỉ sale manager hoặc admin mới có quyền huỷ và phải ghi lý do.",
             source="Chính sách bán hàng v1.0 — phòng Kinh doanh",
         )
         rule_order_limit = ProjectRule(
-            project_id=pid, type=RuleType.constraint, is_dynamic=False,
+            project_id=pid, code="BR-004", type=RuleType.constraint, is_dynamic=False,
             rule_def="Mỗi đơn hàng không vượt quá 50 sản phẩm (SKU) hoặc tổng giá trị 100 triệu VND. Đơn vượt giới hạn được chuyển sang trạng thái pending_approval và sale manager nhận thông báo trong 5 phút.",
             source="Quy định quản lý rủi ro tín dụng — phòng Tài chính",
         )
         rule_shipping = ProjectRule(
-            project_id=pid, type=RuleType.calculation, is_dynamic=True,
+            project_id=pid, code="BR-005", type=RuleType.calculation, is_dynamic=True,
             rule_def="Phí giao hàng = 0 nếu tổng giá trị đơn >= 500.000 VND. Dưới ngưỡng: 30.000 VND nội thành, 50.000 VND ngoại thành và 80.000 VND tỉnh thành khác. Tính theo địa chỉ giao hàng.",
             source="Bảng phí vận chuyển 3PL Q1-2026",
         )
         rule_auto_cancel = ProjectRule(
-            project_id=pid, type=RuleType.process, is_dynamic=False,
+            project_id=pid, code="BR-006", type=RuleType.process, is_dynamic=False,
             rule_def="Đơn hàng thanh toán online tự động huỷ và hoàn trả tồn kho ERP nếu không nhận được xác nhận thanh toán trong 15 phút kể từ lúc tạo đơn. Khách nhận email thông báo huỷ và có thể đặt lại.",
             source="Quy trình xử lý đơn hàng v2 — phòng Vận hành",
         )
         rule_otp = ProjectRule(
-            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            project_id=pid, code="BR-007", type=RuleType.policy, is_dynamic=False,
             rule_def="Hệ thống cho phép tối đa 3 lần nhập sai OTP xác thực checkout trong 10 phút. Quá giới hạn sẽ khoá session 30 phút và gửi cảnh báo đến email đăng ký.",
             source="Chính sách bảo mật tài khoản — phòng IT",
         )
         rule_voucher = ProjectRule(
-            project_id=pid, type=RuleType.constraint, is_dynamic=True,
+            project_id=pid, code="BR-008", type=RuleType.constraint, is_dynamic=True,
             rule_def="Mã giảm giá chỉ được áp dụng một lần mỗi tài khoản. Voucher một lần sử dụng bị vô hiệu hoá ngay sau khi áp dụng thành công. Không áp dụng đồng thời nhiều mã giảm giá cho một đơn.",
             source="Quy định chương trình khuyến mãi — phòng Marketing",
         )
         rule_refund = ProjectRule(
-            project_id=pid, type=RuleType.policy, is_dynamic=False,
+            project_id=pid, code="BR-009", type=RuleType.policy, is_dynamic=False,
             rule_def="Hoàn tiền cho đơn huỷ sau khi thanh toán: hoàn 100% nếu huỷ trong 30 phút và kho chưa xác nhận. Hoàn 90% nếu kho đã xác nhận nhưng chưa xuất hàng. Không hoàn tiền nếu hàng đã xuất kho.",
             source="Chính sách hoàn tiền v1.2 — phòng Tài chính",
         )
