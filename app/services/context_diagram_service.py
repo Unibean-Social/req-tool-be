@@ -256,7 +256,7 @@ class ContextDiagramService:
         )
 
         actions_result = await self.db.execute(
-            select(ProjectFlowAction, ProjectFlow.name, Stakeholder.name)
+            select(ProjectFlowAction, ProjectFlow.id, ProjectFlow.name, Stakeholder.name)
             .join(ProjectFlow, ProjectFlowAction.flow_id == ProjectFlow.id)
             .join(Stakeholder, ProjectFlowAction.actor_id == Stakeholder.id)
             .where(
@@ -270,70 +270,72 @@ class ContextDiagramService:
         new_meta: dict[str, Any] = dict(existing_meta)
         seen_actors: set[str] = set(existing_ids)
         flow_actor_ids: list[str] = []
-        uncached_rows: list[tuple[Any, str, str, str]] = []
 
-        for action, flow_name, actor_name in rows:
+        # group uncached rows by flow, preserving insertion order
+        uncached_by_flow: dict[str, list[tuple[Any, str, str, str]]] = {}
+        for action, flow_id, flow_name, actor_name in rows:
             aid = str(action.actor_id)
             desc_hash = hashlib.sha256((action.description or "").encode()).hexdigest()
             cached = existing_meta.get(str(action.id), {})
             if cached.get("hash") != desc_hash:
-                uncached_rows.append((action, flow_name, actor_name, desc_hash))
+                uncached_by_flow.setdefault(str(flow_id), []).append(
+                    (action, flow_name, actor_name, desc_hash)
+                )
             if aid not in seen_actors:
                 flow_actor_ids.append(aid)
                 seen_actors.add(aid)
 
-        if uncached_rows:
+        # classify one flow at a time — keeps Bedrock context scoped per flow
+        for flow_rows in uncached_by_flow.values():
             bedrock_results = await asyncio.gather(*[
                 classify_direction(action.description or "", actor=actor_name or "", **bedrock_kwargs)
-                for action, _, actor_name, _ in uncached_rows
+                for action, _, actor_name, _ in flow_rows
             ])
-            for (action, _, _, desc_hash), result in zip(uncached_rows, bedrock_results):
+            for (action, _, _, desc_hash), result in zip(flow_rows, bedrock_results):
                 new_meta[str(action.id)] = {
                     "hash": desc_hash,
                     "direction": result["direction"],
                     "label": result["label"],
                 }
 
-        groups: dict[tuple[str, str], str] = {}
-        for action, flow_name, _ in rows:
+        # one edge per (actor, flow, direction) — preserves per-flow labels
+        groups: dict[tuple[str, str, str], str] = {}
+        for action, flow_id, flow_name, _ in rows:
             aid = str(action.actor_id)
             entry = new_meta.get(str(action.id), {})
             direction = entry.get("direction", "actor_to_system")
             label = entry.get("label", flow_name)
-            key = (aid, direction)
+            key = (aid, str(flow_id), direction)
             if key not in groups:
                 groups[key] = label
 
         all_valid_ids = existing_ids | set(flow_actor_ids)
-        existing_pairs: set[tuple[str, str]] = {
-            (f.get("source", ""), f.get("target", ""))
+        existing_triples: set[tuple[str, str, str]] = {
+            (f.get("source", ""), f.get("target", ""), f.get("label", ""))
             for f in diagram.flows
         }
+        actors_with_edges: set[str] = {
+            f.get("source", "") for f in diagram.flows if f.get("source") != _CENTER
+        } | {
+            f.get("target", "") for f in diagram.flows if f.get("target") != _CENTER
+        }
         new_flows: list[dict[str, Any]] = []
-        actors_with_edges: set[str] = set()
 
-        for (aid, direction), label in groups.items():
+        for (aid, _flow_id, direction), label in groups.items():
             if aid not in all_valid_ids:
                 continue
             src, tgt = (_CENTER, aid) if direction == "system_to_actor" else (aid, _CENTER)
-            if (src, tgt) not in existing_pairs:
+            if (src, tgt, label) not in existing_triples:
                 new_flows.append({"id": str(uuid.uuid4()), "source": src, "target": tgt, "label": label})
-                existing_pairs.add((src, tgt))
+                existing_triples.add((src, tgt, label))
             actors_with_edges.add(aid)
 
-        # stakeholders already in the diagram that have no edge at all get a default actor→center edge
-        for f in diagram.flows:
-            src, tgt = f.get("source", ""), f.get("target", "")
-            if src != _CENTER:
-                actors_with_edges.add(src)
-            if tgt != _CENTER:
-                actors_with_edges.add(tgt)
-
+        # stakeholders with no edge at all get a default actor→center edge
         all_stakeholder_ids = list(existing_ids) + flow_actor_ids
         for sid in all_stakeholder_ids:
-            if sid not in actors_with_edges and (sid, _CENTER) not in existing_pairs:
+            if sid not in actors_with_edges:
                 new_flows.append({"id": str(uuid.uuid4()), "source": sid, "target": _CENTER, "label": ""})
-                existing_pairs.add((sid, _CENTER))
+                existing_triples.add((sid, _CENTER, ""))
                 actors_with_edges.add(sid)
 
         if flow_actor_ids:

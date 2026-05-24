@@ -25,13 +25,13 @@ Rules:
 - "actor_to_system": the actor initiates, requests, submits, or sends something TO the system (input/request flow)
 - "system_to_actor": the system sends, notifies, returns, displays, or responds TO the actor (output/response flow)
 
-Generate a concise 2-5 word label that matches the classified direction:
-- If actor_to_system: label describes what the actor sends or does (e.g. "Submit order", "Upload file", "Request report")
-- If system_to_actor: label describes what the system returns or sends (e.g. "Confirm payment", "Send notification", "Return results")
+Generate a concise 2-5 word label IN VIETNAMESE that matches the classified direction:
+- If actor_to_system: label describes what the actor sends or does (e.g. "Gửi đơn hàng", "Tải lên tệp", "Yêu cầu báo cáo")
+- If system_to_actor: label describes what the system returns or sends (e.g. "Xác nhận thanh toán", "Gửi thông báo", "Trả kết quả")
 
 Return exactly two lines with no extra text:
 direction: <actor_to_system|system_to_actor>
-label: <concise label>
+label: <nhãn tiếng Việt ngắn gọn>
 
 Actor: "{actor}"
 Description: "{text}"\
