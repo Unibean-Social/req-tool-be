@@ -26,9 +26,11 @@ Rules:
 - "actor_to_system": the actor initiates, requests, submits, or sends something TO the system
 - "system_to_actor": the system sends, notifies, returns, or responds TO the actor; also use this when the actor RECEIVES something from the system
 
-Generate a concise 2-5 word Vietnamese label matching the classified direction:
-- actor_to_system: describe what the actor does or sends (e.g. "Gửi đơn hàng", "Tải lên tệp", "Yêu cầu báo cáo")
-- system_to_actor: describe what the system provides (e.g. "Xác nhận thanh toán", "Gửi thông báo", "Trả kết quả"){actors_hint}
+Generate a concise 2-4 word Vietnamese label as a NOUN or NOUN PHRASE — name the data, document, or information being exchanged, not the action:
+- actor_to_system: name what the actor provides (e.g. "Đơn đặt hàng", "Thông tin đăng nhập", "Yêu cầu báo cáo")
+- system_to_actor: name what the system delivers (e.g. "Xác nhận thanh toán", "Thông báo giao hàng", "Kết quả tìm kiếm")
+
+Do NOT use verb phrases like "Gửi ...", "Tải lên ...", "Trả về ..." — labels must start with a noun.{actors_hint}
 
 Return exactly two lines with no extra text:
 direction: <actor_to_system|system_to_actor>

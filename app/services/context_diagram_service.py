@@ -40,14 +40,19 @@ _FLOW_KEY = "flow_key"
 _INTERNAL_ACTOR_NAMES = frozenset(["hệ thống", "system", "backend"])
 
 
+def _layout_is_stale(layout: dict) -> bool:
+    """Detect layouts computed with old STK_W=220 constants (midpoint 210 between 220 and 176)."""
+    return any(n.get("width", 0) >= 210 for n in layout.get("nodes", []))
+
+
 def _is_internal_actor(actor_name: str) -> bool:
     lower = actor_name.lower()
     return any(p in lower for p in _INTERNAL_ACTOR_NAMES)
 
 
-_ANGLE_PER_STEP = math.radians(20)  # 20° per signed step
-_CURVE_PER_STEP = 0.35
-_MAX_ANGLE = math.radians(80)
+_ANGLE_PER_STEP = math.radians(28)  # 28° per signed step — wider fan for edge separation
+_CURVE_PER_STEP = 0.5
+_MAX_ANGLE = math.radians(70)       # cap so edges don't wrap past actor node
 _MAX_CURVE = 1.2
 
 
@@ -59,8 +64,28 @@ def _signed_step(idx: int) -> int:
     return step if idx % 2 == 1 else -step
 
 
-def _assign_curvatures(flows: list[dict]) -> list[dict]:
-    """Assign symmetric angular fan values to same-pair edges (0, ±1, ±2 … steps)."""
+def _actor_angles(stakeholder_ids: list[str]) -> dict[str, float]:
+    """Compute radial angle for each actor (same formula as calculate_layout)."""
+    n = len(stakeholder_ids)
+    if n == 0:
+        return {}
+    step = 2 * math.pi / n
+    return {sid: -math.pi / 2 + i * step for i, sid in enumerate(stakeholder_ids)}
+
+
+def _assign_curvatures(flows: list[dict], stakeholder_ids: list[str] | None = None) -> list[dict]:
+    """Assign symmetric angular fan values to same-pair edges (0, ±1, ±2 … steps).
+
+    When stakeholder_ids is provided, the first edge of each pair gets a small quadrant-aware
+    curvature bias so edges from actors in the same half-plane curve away from each other.
+    """
+    angles = _actor_angles(stakeholder_ids) if stakeholder_ids else {}
+
+    # pre-count edges per pair to apply bias only on multi-edge pairs
+    pair_count: dict[frozenset, int] = defaultdict(int)
+    for f in flows:
+        pair_count[frozenset((f.get("source", ""), f.get("target", "")))] += 1
+
     pair_idx: dict[frozenset, int] = defaultdict(int)
     result = []
     for f in flows:
@@ -70,6 +95,16 @@ def _assign_curvatures(flows: list[dict]) -> list[dict]:
         s = _signed_step(idx)
         angular_offset = max(-_MAX_ANGLE, min(_MAX_ANGLE, s * _ANGLE_PER_STEP))
         curvature = max(-_MAX_CURVE, min(_MAX_CURVE, s * _CURVE_PER_STEP))
+
+        # For the central edge of a multi-edge pair, apply a small quadrant bias so actors
+        # in the same half-plane push their fans in opposite directions.
+        if idx == 0 and pair_count[pair] > 1 and angles:
+            actor_id = src if src != _CENTER else tgt
+            angle = angles.get(actor_id, 0.0)
+            base_sign = 1 if math.cos(angle) >= 0 else -1
+            curvature = round(_CURVE_PER_STEP * 0.25 * base_sign, 3)
+            angular_offset = round(_ANGLE_PER_STEP * 0.25 * base_sign, 4)
+
         result.append({**f, "curvature": round(curvature, 3), "angular_offset": round(angular_offset, 4)})
         pair_idx[pair] += 1
     return result
@@ -143,11 +178,11 @@ class ContextDiagramService:
             ))
         # Fill null anchors / label_offset for FE curve rendering. Copy first so we
         # don't mutate the SQLAlchemy-tracked JSON column.
-        layout = (
-            enrich_layout_edges({**diagram.layout}, list(diagram.flows))
-            if diagram.layout
-            else None
-        )
+        # Stale layouts (node width ≥ 210) were computed with old STK_W=220 constants;
+        # return null so FE uses its default radial fallback until next sync recomputes.
+        layout = None
+        if diagram.layout and not _layout_is_stale(diagram.layout):
+            layout = enrich_layout_edges({**diagram.layout}, list(diagram.flows))
         return ContextDiagramResponse(
             center_label=project_name,
             stakeholders=stakeholders,
@@ -424,10 +459,11 @@ class ContextDiagramService:
         old_auto_sigs = {_edge_sig(f) for f in diagram.flows if _FLOW_KEY in f}
         new_auto_sigs = {_edge_sig(f) for f in new_flows}
         auto_edges_changed = old_auto_sigs != new_auto_sigs
+        truly_new_flows = new_auto_sigs - old_auto_sigs
 
         if auto_edges_changed:
             merged = preserved_flows + new_flows
-            merged = _assign_curvatures(merged)
+            merged = _assign_curvatures(merged, diagram.stakeholder_ids)
             diagram.flows = merged
             flag_modified(diagram, "flows")
 
@@ -440,7 +476,7 @@ class ContextDiagramService:
             diagram.sync_meta = new_meta
             flag_modified(diagram, "sync_meta")
 
-        diagram_changed = bool(flow_actor_ids or new_flows or meta_changed)
+        diagram_changed = bool(flow_actor_ids or auto_edges_changed or meta_changed)
 
         # recompute layout only when diagram structure changed — preserve user-dragged positions otherwise
         if diagram_changed or not diagram.layout:
@@ -458,7 +494,7 @@ class ContextDiagramService:
 
         return SyncResult(
             added_stakeholders=len(flow_actor_ids),
-            added_flows=len(new_flows),
+            added_flows=len(truly_new_flows),
             diagram=self._build_response(project_name, diagram, stakeholder_map),
         )
 

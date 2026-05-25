@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 CANVAS_CX = 600.0
 CANVAS_CY = 400.0
 CENTER_R = 90.0           # project circle radius (diameter 180px)
-STK_W = 220.0             # stakeholder rectangle width
-STK_H = 80.0              # stakeholder rectangle height
+STK_W = 176.0             # stakeholder rectangle width (matches FE card)
+STK_H = 40.0              # stakeholder rectangle height (matches FE card)
 RADIUS = CENTER_R + 300.0 # center edge → stakeholder edge gap ~300px
 LABEL_W = 130.0
 LABEL_H = 24.0
-LABEL_PERP_OFFSET = 20.0  # px to push bidirectional labels apart
+LABEL_PERP_OFFSET = 24.0  # px to push bidirectional labels apart (scaled with wider fan)
 EDGE_BULGE_PX = 80.0      # perpendicular bezier bulge per unit curvature
 LABEL_BULGE_PX = 40.0     # label perpendicular shift per unit curvature
 
@@ -312,6 +312,9 @@ async def _call_bedrock(
 def _rect_perimeter_intersect(cx: float, cy: float, half_w: float, half_h: float,
                               ux: float, uy: float) -> tuple[float, float]:
     """Ray (cx,cy)+t*(ux,uy) hitting axis-aligned rectangle perimeter."""
+    if half_w <= 0 or half_h <= 0:
+        logger.warning("enrich_layout_edges: zero-size node at (%.1f, %.1f) — anchor defaults to center", cx, cy)
+        return cx, cy
     aux, auy = abs(ux), abs(uy)
     if aux < 1e-9:
         t = half_h / max(auy, 1e-9)
@@ -382,8 +385,11 @@ def enrich_layout_edges(layout_dict: dict | None, flows: list[dict]) -> dict | N
     node_size: dict[str, tuple[float, float]] = {}
     for n in layout_dict.get("nodes", []):
         p = n.get("position", {})
-        w = float(n.get("width", STK_W))
-        h = float(n.get("height", STK_H))
+        is_center = n["id"] == "center"
+        # Always use current constants for actor nodes — stored sizes may be stale.
+        # Center node: use stored width (or CENTER_R*2 default); anchor logic uses CENTER_R directly.
+        w = float(n.get("width", CENTER_R * 2)) if is_center else STK_W
+        h = float(n.get("height", CENTER_R * 2)) if is_center else STK_H
         px = float(p.get("x", 0.0))
         py = float(p.get("y", 0.0))
         # positions are top-left (React Flow convention); convert to center for geometry
@@ -500,8 +506,8 @@ Current flows (id: actor→direction, label, curvature, angular_offset°):
 {overlap_section}
 Fine-tune curvature and angular_offset_deg for all flows:
 - Same-pair edges must form a symmetric arc fan: curvature and angular_offset MUST share the same sign
-- Adjacent angular_offsets within the same pair should be spaced ≥ 15° apart
-- angular_offset_deg in [-80, 80]; curvature in [-1.2, 1.2]
+- Adjacent angular_offsets within the same pair should be spaced ≥ 25° apart
+- angular_offset_deg in [-70, 70]; curvature in [-1.2, 1.2]
 - Resolve any label overlaps between different actor pairs using angular_offset spread
 - Preserve the fan order (sorted by angular_offset from most negative to most positive)
 

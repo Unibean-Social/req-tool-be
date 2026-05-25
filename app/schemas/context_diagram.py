@@ -17,6 +17,7 @@ class ContextDiagramFlow(BaseModel):
     target: str
     label: str = ""
     curvature: float = 0.0
+    angular_offset: float = 0.0
 
 
 class LayoutNode(BaseModel):
