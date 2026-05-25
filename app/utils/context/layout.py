@@ -25,8 +25,8 @@ RADIUS = CENTER_R + 300.0 # center edge → stakeholder edge gap ~300px
 LABEL_W = 130.0
 LABEL_H = 24.0
 LABEL_PERP_OFFSET = 24.0  # px to push bidirectional labels apart (scaled with wider fan)
-EDGE_BULGE_PX = 80.0      # perpendicular bezier bulge per unit curvature
-LABEL_BULGE_PX = 40.0     # label perpendicular shift per unit curvature
+EDGE_BULGE_PX = 80.0              # perpendicular bezier bulge per unit curvature
+LABEL_BULGE_PX = EDGE_BULGE_PX / 2  # derived — always half of EDGE_BULGE_PX
 
 
 # ── Data classes ───────────────────────────────────────────────────────────────
@@ -299,6 +299,18 @@ def _build_node_center_map(nodes: list[ContextNodeLayout]) -> dict[str, tuple[fl
     return pos
 
 
+def _bezier_midpoint(
+    ax: float, ay: float, bx: float, by: float, curvature: float
+) -> tuple[float, float]:
+    """Quadratic bezier midpoint B(t=0.5) = 0.25*A + 0.5*C + 0.25*B."""
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy) or 1.0
+    perp_x, perp_y = -dy / length, dx / length
+    cx = (ax + bx) / 2 + perp_x * curvature * EDGE_BULGE_PX
+    cy = (ay + by) / 2 + perp_y * curvature * EDGE_BULGE_PX
+    return (0.25 * ax + 0.5 * cx + 0.25 * bx, 0.25 * ay + 0.5 * cy + 0.25 * by)
+
+
 async def _call_bedrock(
     prompt: str, access_key: str, secret_key: str, region: str, model_id: str,
 ) -> dict:
@@ -463,17 +475,7 @@ def _detect_cross_pair_overlaps(
         sx, sy = node_pos.get(f.get("source", ""), (CANVAS_CX, CANVAS_CY))
         tx, ty = node_pos.get(f.get("target", ""), (CANVAS_CX, CANVAS_CY))
         curvature = float(f.get("curvature", 0.0) or 0.0)
-        ang = float(f.get("angular_offset", 0.0) or 0.0)
-        dx, dy = tx - sx, ty - sy
-        length = math.hypot(dx, dy) or 1.0
-        perp_x, perp_y = -dy / length, dx / length
-        # angular_offset fans the anchor laterally by ~sin(θ)*avg_half_size;
-        # curvature adds bezier bulge — combine both for accurate label proxy
-        lateral = curvature * EDGE_BULGE_PX / 2 + math.sin(ang) * 100
-        return (
-            (sx + tx) / 2 + perp_x * lateral,
-            (sy + ty) / 2 + perp_y * lateral,
-        )
+        return _bezier_midpoint(sx, sy, tx, ty, curvature)
 
     valid = [f for f in flows if f.get("id")]
     pair_of = {f["id"]: frozenset([f.get("source", ""), f.get("target", "")]) for f in valid}
@@ -492,123 +494,88 @@ def _detect_cross_pair_overlaps(
     return conflicts
 
 
-# ── Bedrock: curvature review ──────────────────────────────────────────────────
+# ── Force-repulsion conflict resolver ─────────────────────────────────────────
 
-_CURVATURE_PROMPT = """\
-Context diagram layout optimizer. Central system: "{system_name}". Stakeholders on a radial circle.
-
-Stakeholders (id, name, angle° clockwise from top):
-{stakeholder_info}
-
-Current flows (id: actor→direction, label, curvature, angular_offset°):
-{flow_info}
-
-{overlap_section}
-Fine-tune curvature and angular_offset_deg for all flows:
-- Same-pair edges must form a symmetric arc fan: curvature and angular_offset MUST share the same sign
-- Adjacent angular_offsets within the same pair should be spaced ≥ 25° apart
-- angular_offset_deg in [-70, 70]; curvature in [-1.2, 1.2]
-- Resolve any label overlaps between different actor pairs using angular_offset spread
-- Preserve the fan order (sorted by angular_offset from most negative to most positive)
-
-Return ONLY JSON — include ALL flow IDs: {{"flows": {{"<id>": {{"curvature": <float>, "angular_offset_deg": <float>}}, ...}}}}\
-"""
+_REPULSE_MIN_MID_DIST = 90.0       # px — minimum bezier midpoint separation
+_REPULSE_MAX_ITER = 12
+_REPULSE_ANG = math.radians(8)     # angular_offset adjustment per iteration
+_REPULSE_CURV = 0.12               # curvature adjustment per iteration (fallback)
+_REPULSE_MAX_ANGLE = math.radians(70)
+_REPULSE_MAX_CURVE = 1.2
 
 
-def _rule_separate_conflicts(
-    flows: list[dict],
-    conflicts: list[tuple[str, str]],
-) -> list[dict]:
-    """Assign opposite curvature signs to conflicting flow pairs."""
-    curv = {f["id"]: float(f.get("curvature", 0.0) or 0.0) for f in flows}
-    for a, b in conflicts:
-        ca, cb = curv[a], curv[b]
-        if abs(ca - cb) >= 0.15:
-            continue
-        step = 0.15
-        curv[a] = round(step if ca >= 0 else -step, 2)
-        curv[b] = round(-step if ca >= 0 else step, 2)
-    return [{**f, "curvature": curv[f["id"]]} for f in flows]
+def force_resolve_conflicts(flows: list[dict], layout: ContextLayout) -> list[dict]:
+    """Resolve cross-pair bezier midpoint overlaps via force-repulsion.
 
+    Prefers angular_offset repulsion; falls back to curvature when angle cap is hit.
+    Exits early on stable state (no moved edges in an iteration).
+    """
+    all_nodes = [layout.center] + layout.nodes
+    node_pos = _build_node_center_map(layout.nodes)
+    node_size = {n.id: (n.width, n.height) for n in all_nodes}
 
-async def review_curvatures(
-    layout: ContextLayout,
-    flows: list[dict],
-    stakeholder_names: dict[str, str],
-    system_name: str = "System",
-    access_key: str = "",
-    secret_key: str = "",
-    region: str = "us-east-1",
-    model_id: str = "google.gemma-3-4b-it",
-) -> list[dict]:
-    """Review curvature + angular_offset via Bedrock; rule-based fallback on conflicts only."""
-    conflicts = _detect_cross_pair_overlaps(layout.nodes, flows)
+    params: dict[str, list[float]] = {
+        f["id"]: [
+            float(f.get("curvature", 0.0) or 0.0),
+            float(f.get("angular_offset", 0.0) or 0.0),
+        ]
+        for f in flows
+        if f.get("id")
+    }
+    pair_of = {
+        f["id"]: frozenset([f.get("source", ""), f.get("target", "")])
+        for f in flows if f.get("id")
+    }
+    ids = [f["id"] for f in flows if f.get("id") and f["id"] in params]
 
-    if access_key and secret_key:
-        try:
-            return await _bedrock_review_curvatures(
-                layout, flows, conflicts, stakeholder_names, system_name,
-                access_key, secret_key, region, model_id,
+    for _ in range(_REPULSE_MAX_ITER):
+        anchors: dict[str, tuple[float, float, float, float]] = {}
+        for f in flows:
+            fid = f.get("id")
+            if not fid or fid not in params:
+                continue
+            c, ang = params[fid]
+            src_anchor, tgt_anchor, _ = _compute_curve_geometry(
+                f.get("source", ""), f.get("target", ""), c,
+                node_pos, node_size, ang,
             )
-        except Exception as exc:
-            logger.warning("Bedrock curvature review failed, rule-based fallback: %s", exc)
+            sx, sy = node_pos.get(f.get("source", ""), (CANVAS_CX, CANVAS_CY))
+            tx, ty = node_pos.get(f.get("target", ""), (CANVAS_CX, CANVAS_CY))
+            anchors[fid] = (sx + src_anchor["x"], sy + src_anchor["y"],
+                            tx + tgt_anchor["x"], ty + tgt_anchor["y"])
 
-    return _rule_separate_conflicts(flows, conflicts) if conflicts else flows
+        mids = {
+            fid: _bezier_midpoint(*anchors[fid], params[fid][0])
+            for fid in params
+            if fid in anchors
+        }
 
+        moved = False
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = ids[i], ids[j]
+                if pair_of.get(a) == pair_of.get(b):
+                    continue
+                if a not in mids or b not in mids:
+                    continue
+                dist = math.hypot(mids[a][0] - mids[b][0], mids[a][1] - mids[b][1])
+                if dist >= _REPULSE_MIN_MID_DIST:
+                    continue
+                ca, oa = params[a]
+                cb, ob = params[b]
+                if abs(oa) < _REPULSE_MAX_ANGLE - _REPULSE_ANG:
+                    params[a][1] = oa + _REPULSE_ANG
+                    params[b][1] = ob - _REPULSE_ANG
+                else:
+                    params[a][0] = min(ca + _REPULSE_CURV, _REPULSE_MAX_CURVE)
+                    params[b][0] = max(cb - _REPULSE_CURV, -_REPULSE_MAX_CURVE)
+                moved = True
+        if not moved:
+            break
 
-async def _bedrock_review_curvatures(
-    layout: ContextLayout,
-    flows: list[dict],
-    conflicts: list[tuple[str, str]],
-    stakeholder_names: dict[str, str],
-    system_name: str,
-    access_key: str,
-    secret_key: str,
-    region: str,
-    model_id: str,
-) -> list[dict]:
-    # only auto-generated edges participate in curvature review; user-created edges pass through
-    auto_flows = [f for f in flows if "flow_key" in f]
-    user_flows = [f for f in flows if "flow_key" not in f]
-
-    node_angle = {n.id: round(math.degrees(n.angle) % 360, 0) for n in layout.nodes}
-    stakeholder_info = "\n".join(
-        f'- id={sid} "{stakeholder_names.get(sid, sid)}" {node_angle.get(sid, "?")}°'
-        for sid in [n.id for n in layout.nodes]
-    )
-    flow_info = "\n".join(
-        f'- {f["id"]}: {f.get("source")}→{f.get("target")} '
-        f'"{f.get("label","")}" curv={f.get("curvature", 0.0)} '
-        f'ang={round(math.degrees(float(f.get("angular_offset", 0.0) or 0.0)), 1)}°'
-        for f in auto_flows
-    )
-    overlap_section = (
-        "Edge label pairs that visually overlap:\n" +
-        "\n".join(f"- {a} ↔ {b}" for a, b in conflicts)
-        if conflicts else
-        "No label overlaps detected — review for arc fan quality only."
-    )
-    prompt = _CURVATURE_PROMPT.format(
-        system_name=system_name,
-        stakeholder_info=stakeholder_info,
-        flow_info=flow_info,
-        overlap_section=overlap_section,
-    )
-    raw = (await _call_bedrock(prompt, access_key, secret_key, region, model_id)).get("flows", {})
-
-    updated_auto = []
-    for f in auto_flows:
-        update = raw.get(f["id"], {})
-        patch = {}
-        if "curvature" in update:
-            patch["curvature"] = round(float(update["curvature"]), 3)
-        if "angular_offset_deg" in update:
-            patch["angular_offset"] = round(math.radians(float(update["angular_offset_deg"])), 4)
-        updated_auto.append({**f, **patch})
-
-    # restore original insertion order
-    order = {f["id"]: i for i, f in enumerate(flows)}
-    merged = user_flows + updated_auto
-    merged.sort(key=lambda f: order.get(f["id"], 0))
-    return merged
+    return [
+        {**f, "curvature": round(params[f["id"]][0], 3), "angular_offset": round(params[f["id"]][1], 4)}
+        if f.get("id") and f["id"] in params else f
+        for f in flows
+    ]
 

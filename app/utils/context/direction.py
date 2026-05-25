@@ -41,6 +41,19 @@ Description: "{text}"\
 """
 
 
+_GROUP_LABEL_PROMPT = """\
+You are a UML Context Diagram edge labeler.
+Given a list of related use-case steps between "{actor}" and the system "{system}",
+generate ONE concise 2-4 word Vietnamese noun phrase that names the primary information exchanged.
+Do NOT use verb phrases. Do NOT list multiple items.
+
+Steps:
+{steps}
+
+Return exactly one line:
+label: <nhãn tiếng Việt>"""
+
+
 class DirectionResult(TypedDict):
     direction: str
     label: str
@@ -60,26 +73,12 @@ def _invoke_bedrock(
     model_id: str,
     other_actors: list[str],
 ) -> DirectionResult:
-    import boto3
-
     actors_hint = (
         f"\nOther actors in the system: {', '.join(other_actors)}"
         if other_actors else ""
     )
     prompt = _PROMPT.format(text=text, actor=actor, actors_hint=actors_hint)
-
-    client = boto3.client(
-        "bedrock-runtime",
-        region_name=region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-    )
-    response = client.converse(
-        modelId=model_id,
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": 40, "temperature": 0.0},
-    )
-    raw = response["output"]["message"]["content"][0]["text"].strip()
+    raw = _invoke_bedrock_raw(prompt, access_key, secret_key, region, model_id, max_tokens=40)
 
     direction = classify_direction_rules(text)
     label = text[:50]
@@ -93,6 +92,59 @@ def _invoke_bedrock(
             label = line.split(":", 1)[1].strip()
 
     return {"direction": direction, "label": label}
+
+
+def _invoke_bedrock_raw(
+    prompt: str,
+    access_key: str,
+    secret_key: str,
+    region: str,
+    model_id: str,
+    max_tokens: int = 40,
+) -> str:
+    import boto3
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+    response = client.converse(
+        modelId=model_id,
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
+    )
+    return response["output"]["message"]["content"][0]["text"].strip()
+
+
+async def synthesize_group_label(
+    descriptions: list[str],
+    actor_name: str,
+    system_name: str,
+    access_key: str = "",
+    secret_key: str = "",
+    region: str = "us-east-1",
+    model_id: str = "google.gemma-3-4b-it",
+) -> str | None:
+    """Synthesize one label for a (flow, actor, direction) group. Returns None on any failure."""
+    if not access_key or not secret_key:
+        return None
+    steps = "\n".join(f"{i + 1}. {d}" for i, d in enumerate(descriptions[:5]))
+    prompt = _GROUP_LABEL_PROMPT.format(actor=actor_name, system=system_name, steps=steps)
+    try:
+        raw = await asyncio.wait_for(
+            asyncio.to_thread(
+                _invoke_bedrock_raw, prompt, access_key, secret_key, region, model_id,
+                max_tokens=30,
+            ),
+            timeout=8.0,
+        )
+        for line in raw.splitlines():
+            if line.lower().startswith("label:"):
+                return line.split(":", 1)[1].strip()
+        return None
+    except Exception:
+        return None
 
 
 async def classify_direction(
